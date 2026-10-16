@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 17, EXTRAS_V = 6, REGION = 'SV';
+const APP_VERSION = 18, EXTRAS_V = 7, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -64,7 +64,7 @@ function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return 
     digital:m.digital && DATE_RE.test(m.digital.d) ? {d:m.digital.d, cc:/^[A-Z]{2}$/.test(m.digital.cc || '') ? m.digital.cc : '', fd:DATE_RE.test(m.digital.fd || '') ? m.digital.fd : '', fcc:/^[A-Z]{2}$/.test(m.digital.fcc || '') ? m.digital.fcc : ''} : null,
     prov, provAt:+m.provAt || 0, extrasV:+m.extrasV || 0,
     status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, ratedAt:+m.ratedAt || 0, note:str(m.note, 3000),
-    order:isFinite(+m.order) ? +m.order : 0, pos:m.pos === null || m.pos === undefined || !isFinite(+m.pos) ? null : +m.pos, lastRank:Number.isInteger(+m.lastRank) && +m.lastRank > 0 ? +m.lastRank : null, rtT:str(m.rtT, 200), overview:str(m.overview, 1500), rtY:Number.isInteger(+m.rtY) && +m.rtY > 0 ? +m.rtY : null, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
+    order:isFinite(+m.order) ? +m.order : 0, pos:m.pos === null || m.pos === undefined || !isFinite(+m.pos) ? null : +m.pos, lastRank:Number.isInteger(+m.lastRank) && +m.lastRank > 0 ? +m.lastRank : null, rtT:str(m.rtT, 200), overview:str(m.overview, 1500), release:DATE_RE.test(m.release || '') ? m.release : '', relStatus:str(m.relStatus, 30), rtY:Number.isInteger(+m.rtY) && +m.rtY > 0 ? +m.rtY : null, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
 
 /* ---------- TMDB ---------- */
 async function tmdb(path, params = {}, signal){
@@ -100,13 +100,15 @@ async function fetchInfo(kind, id){
   const base = {kind, tmdb:d.id, posterPath:d.poster_path || '', genres:(d.genres || []).map(g => GENRES_ES[g.id] || g.name), cast:castFrom(d.credits), imdb:(d.external_ids && d.external_ids.imdb_id) || d.imdb_id || '',
     trailer:pickTrailer(vids, 'en'), trailerEs:pickTrailer(vids, 'es') || await esTrailer(kind, id), prov:pickProv(d['watch/providers']), provAt:Date.now(), extrasV:EXTRAS_V, overview:await overviewEs(kind, id, d.overview)};
   if (kind === 'movie'){ const dirs = ((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').slice(0,4).map(c => ({n:c.name, id:c.id}));
+    base.release = DATE_RE.test(d.release_date || '') ? d.release_date : ''; base.relStatus = d.status || '';
     return Object.assign(base, {title:d.title || d.original_title || '', original:d.original_title && d.original_title !== d.title ? d.original_title : '', year:(d.release_date || '').slice(0,4), runtime:d.runtime || null, dirs, directors:dirs.map(x => x.n), digital:pickDigital(d.release_dates)}); }
   const dirs = (d.created_by || []).slice(0,4).map(c => ({n:c.name, id:c.id}));
+  base.release = DATE_RE.test(d.first_air_date || '') ? d.first_air_date : ''; base.relStatus = d.status || '';
   return Object.assign(base, {title:d.name || d.original_name || '', original:d.original_name && d.original_name !== d.name ? d.original_name : '', year:(d.first_air_date || '').slice(0,4), runtime:null, seasons:d.number_of_seasons || null, dirs, directors:dirs.map(x => x.n), digital:null}); }
 async function loadExtras(m){ if (extrasTried.has(m.id) || !m.tmdb || !apiKey || !navigator.onLine) return; extrasTried.add(m.id);
   try { const x = await fetchInfo(m.kind, m.tmdb); const lang = m.extrasV < 5;
     if (lang && x.title){ m.title = x.title; m.original = x.original; if (x.year) m.year = x.year; if (x.posterPath && x.posterPath !== m.posterPath){ m.posterPath = x.posterPath; m.poster = await posterData(x.posterPath) || m.poster; } }
-    ['overview','genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
+    ['overview','release','relStatus','genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
     if (!m.posterPath && x.posterPath) m.posterPath = x.posterPath; if (!m.poster && m.posterPath) m.poster = await posterData(m.posterPath);
     await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
 async function refreshAllExtras(){ if (!apiKey || !navigator.onLine) return;
@@ -168,11 +170,22 @@ const countLabel = l => { const mv = l.filter(m => m.kind === 'movie').length, t
 function topBar(){ return `<header class="bar"><h1 class="title">Mis películas</h1><div class="bar-actions">${installEvt?'<button class="pill-btn" data-act="install">Instalar</button>':''}<button class="icon-btn" data-act="settings" aria-label="Ajustes">${ic('gear')}</button><button class="icon-btn icon-btn-solid" data-act="add" aria-label="Agregar">${ic('plus')}</button></div></header>
   <div class="seg" role="tablist">${[['seen','Vistas'],['watch','Por ver'],['stats','Estadísticas']].map(([k,n]) => `<button role="tab" class="${tab===k?'on':''}" data-tab="${k}">${n}</button>`).join('')}</div><!--pane-->`; }
 const kindChips = () => movies.some(m => m.kind === 'tv') ? `<div class="chips">${[['all','Todo'],['movie','Películas'],['tv','Series']].map(([k,n]) => `<button class="chip ${kindFilter===k?'on':''}" data-kind="${k}">${n}</button>`).join('')}</div>` : '';
+const RELEASED = ['Released','Returning Series','Ended','Canceled'];
+const isUpcoming = m => (m.release && m.release > todayKey()) || (!m.release && m.relStatus && !RELEASED.includes(m.relStatus));
+function shortSyn(t){ t = String(t || '').replace(/\s+/g, ' ').trim(); if (!t) return '';
+  const parts = t.match(/[^.!?…]+[.!?…]+(\s|$)|[^.!?…]+$/g) || [t]; let out = '';
+  let n = 0; for (const p of parts){ if (out && (n >= 2 || out.length >= 120 || (out + p).length > 240)) break; out += p; n++; }
+  out = out.trim(); if (out.length > 240){ out = out.slice(0, 237).replace(/\s+\S*$/, '') + '…'; } return out; }
+function trustedDigital(m){ const dg = m.digital; if (!dg || m.kind !== 'movie') return null;
+  if (m.release && dg.d < m.release) return null;
+  const ref = m.release || dg.d; if (!isUpcoming(m) && daysTo(ref) < -730 && daysTo(dg.d) < -730) return null;
+  return dg; }
 function badgeFor(m){
   if (m.status === 'seen') return m.rating ? `<span class="score r${rc(m.rating)}">${fr(m.rating)}</span>` : '';
   let b = m.rt ? `<span class="score rt"><i class="${rtFresh(m.rt)?'fresh':'rotten'}"></i>${m.rt}</span>` : '';
   const rk = rtRanks().get(m.id); if (rk) b += `<span class="rank">#${rk}</span>`;
-  if (m.digital && daysTo(m.digital.d) > 0) b += `<span class="soon">Digital en ${daysTo(m.digital.d)} d</span>`;
+  if (isUpcoming(m)) b += `<span class="soon">Próximamente</span>`;
+  else { const dg = trustedDigital(m); if (dg && daysTo(dg.d) > 0) b += `<span class="soon">Digital en ${daysTo(dg.d)} d</span>`; }
   return b; }
 const card = (m, tag = 'button', fixed = false) => `<${tag} class="poster${fixed ? ' fixed' : ''}" ${tag==='button'?`data-open="${esc(m.id)}"`:`data-oid="${esc(m.id)}"`} aria-label="${esc(m.title)}${m.rating&&m.status==='seen'?`, ${fr(m.rating)} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.kind==='tv'?'<span class="kind">Serie</span>':''}${badgeFor(m)}</${tag}>`;
 function viewSeen(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen');
@@ -227,7 +240,10 @@ async function importRT(retry){ if (retry){ rtSkip = new Set(); await DB.put('me
   setTimeout(() => { render(); toast(`Listo: ${plural(res.added, 'película agregada', 'películas agregadas')}${res.fail.length ? `. ${res.fail.length} no se encontraron` : ''}.`);
     if (res.fail.length) openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>No se encontraron</h2><p>Estas no aparecieron en TMDB con su título y año. Puedes buscarlas a mano con «+».</p><div class="box imp-list">${res.fail.map(e => `<div class="row"><span>#${e.r}</span><b>${esc(e.t)}${e.y ? ` (${e.y})` : ''}</b></div>`).join('')}</div><button class="btn btn-primary" data-act="sheetNo">Entendido</button></div>`, 'dim'); }, 300); }
 const sortKey = (m, rk) => rk.has(m.id) ? rk.get(m.id) : m.pos !== null ? m.pos : m.lastRank ? m.lastRank + .5 : 1000 + m.order;
-const watchList = () => { const rk = rtRanks(); return movies.filter(m => m.status === 'watch').sort((a,b) => sortKey(a, rk) - sortKey(b, rk) || (rk.has(b.id) - rk.has(a.id)) || a.order - b.order || b.added - a.added); };
+const watchList = () => { const rk = rtRanks(), l = movies.filter(m => m.status === 'watch');
+  const out = l.filter(m => !isUpcoming(m)).sort((a,b) => sortKey(a, rk) - sortKey(b, rk) || (rk.has(b.id) - rk.has(a.id)) || a.order - b.order || b.added - a.added);
+  const soon = l.filter(isUpcoming).sort((a,b) => (a.release || '9999').localeCompare(b.release || '9999') || b.added - a.added);
+  return [...out, ...soon]; };
 async function syncLastRanks(){ const rk = rtRanks(); for (const m of movies){ const r = rk.get(m.id); if (r && m.lastRank !== r){ m.lastRank = r; try { await DB.put('movies', m); } catch(e){} } } }
 function viewWatch(){ let h = topBar(); const all = watchList(); setTimeout(refreshRT, 0);
   if (!all.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas y series que te recomienden o que quieras ver más adelante.</p>${missingRT().length ? `<button class="btn btn-primary" data-act="importRT">Agregar las ${missingRT().length} de la lista de RT</button><button class="btn btn-secondary" data-act="add">Agregar otra</button>` : '<button class="btn btn-primary" data-act="add">Agregar</button>'}</div>`;
@@ -279,7 +295,8 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
   const tv = m.kind === 'tv';
   let h = `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><div class="bar-actions"><button class="icon-btn" data-act="editInfo" aria-label="Editar datos">${ic('edit')}</button></div></header>`;
   h += `<div class="d-top"><div class="d-poster">${posterImg(m)}</div><div>${tv?'<p class="d-kind">Serie</p>':''}<h1 class="d-title">${esc(m.title)}</h1><p class="d-meta">${esc([m.year, tv ? (m.seasons ? plural(m.seasons, 'temporada', 'temporadas') : '') : (m.runtime ? hours(m.runtime) : '')].filter(Boolean).join(', '))}</p>${m.original?`<p class="d-meta">${esc(m.original)}</p>`:''}</div></div>`;
-  if (m.overview) h += `<p class="synopsis">${esc(m.overview)}</p>`;
+  if (m.overview) h += `<button class="syn-btn" data-act="toggleSyn" aria-expanded="false">${ic('play',14)}<span>Ver sinopsis</span></button><p class="synopsis" id="syn" hidden>${esc(shortSyn(m.overview))}</p>`;
+  if (isUpcoming(m)) h += `<div class="digital future"><span>${m.kind === 'tv' ? 'Se estrena' : 'Llega a cines'}</span><b>${m.release ? fmtD(m.release) : 'Fecha por confirmar'}</b>${m.release && daysTo(m.release) > 0 ? `<small>Faltan ${plural(daysTo(m.release), 'día', 'días')}</small>` : ''}</div>`;
   if (m.status === 'seen'){
     h += m.rating ? `<div class="d-score"><b class="r${rc(m.rating)}">${fr(m.rating)}</b><span>de 10, ${word(m.rating).toLowerCase()}</span></div>` : '';
     h += `<p class="d-sub">${m.watched ? `${tv ? 'La terminaste' : 'La viste'} el ${fmtD(m.watched)}.` : ''}</p>`;
@@ -291,7 +308,7 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
   if (m.trailer) h += `<a class="btn btn-secondary" href="https://www.youtube.com/watch?v=${m.trailer}" target="_blank" rel="noopener noreferrer">${ic('play',18)} Tráiler en inglés</a>`;
   if (m.prov){ const p = m.prov, any = p.flat.length || p.free.length;
     h += `<h2 class="section">Dónde verla en El Salvador</h2><div class="box">${any ? provRow('Suscripción', p.flat, m) + provRow('Gratis', p.free, m) : '<p class="fine">No está incluida en ninguna plataforma de suscripción en El Salvador.</p>'}</div>`; }
-  if (!tv){ const dg = m.digital; if (dg){ const n = daysTo(dg.d), where = dg.cc ? ` en ${COUNTRY[dg.cc] || dg.cc}` : '';
+  if (!tv){ const dg = trustedDigital(m); if (dg){ const n = daysTo(dg.d), where = dg.cc ? ` en ${COUNTRY[dg.cc] || dg.cc}` : '';
     h += `<div class="digital${n > 0 ? ' future' : ''}"><span>${n > 0 ? 'Llega a digital' : 'Estreno en digital'}</span><b>${fmtD(dg.d)}${where}</b>${n > 0 ? `<small>Faltan ${plural(n, 'día', 'días')}</small>` : ''}${dg.fd ? `<em>Antes salió en ${COUNTRY[dg.fcc] || dg.fcc} el ${fmtD(dg.fd)}</em>` : ''}</div>`; } }
   const rank = rtRanks().get(m.id), info = [['Crítica en Rotten Tomatoes', m.rt], ['300 mejores de RT', rank ? `Puesto ${rank}` : ''], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
   const dirs = m.dirs.length ? m.dirs : m.directors.map(n => ({n, id:null}));
@@ -490,6 +507,7 @@ const A = {
   settings(){ go({name:'settings'}); },
   add(){ query = ''; results = null; go({name:'add'}); setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60); },
   back(){ back(); },
+  toggleSyn(t){ const p = $('#syn'); if (!p) return; const open = p.hidden; p.hidden = !open; t.setAttribute('aria-expanded', String(open)); t.querySelector('span').textContent = open ? 'Ocultar sinopsis' : 'Ver sinopsis'; t.classList.toggle('open', open); },
   orderStart(){ hist.push(Object.assign({}, view, {y:window.scrollY})); history.pushState({d:hist.length}, ''); ordering = true; render(); window.scrollTo(0,0); }, orderDone(){ back(); },
   manual(){ draft = {_new:true, kind:searchKind === 'tv' ? 'tv' : 'movie', title:searchKind === 'person' ? '' : query.trim(), year:'', runtime:null, seasons:null, directors:[], genres:[], cast:[], trailer:'', trailerEs:'', poster:null, posterPath:''}; go({name:'form'}); },
   editInfo(){ const m = curM(); if (!m) return; draft = {_new:false, id:m.id, kind:m.kind, title:m.title, year:m.year, runtime:m.runtime, seasons:m.seasons, directors:[...m.directors], genres:[...m.genres], cast:m.cast.map(c => ({...c})), trailer:m.trailer, trailerEs:m.trailerEs, poster:m.poster, posterPath:m.posterPath}; go({name:'form'}); },
