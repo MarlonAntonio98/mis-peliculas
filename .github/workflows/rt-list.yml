@@ -1,0 +1,31 @@
+name: Actualizar lista de Rotten Tomatoes
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Descargar la lista
+        run: python scripts/rt_list.py
+      - name: Guardar cambios
+        run: |
+          if git diff --quiet -- rt-top300.json; then
+            echo "Sin cambios"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+            git add rt-top300.json
+            git commit -m "Actualizar lista de Rotten Tomatoes"
+            git push
+          fi
