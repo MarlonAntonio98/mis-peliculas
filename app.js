@@ -4,11 +4,12 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 2;
-const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/';
+const APP_VERSION = 4;
+const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
+const RT_MAX_AGE = 7 * 864e5;
 const WORDS = ['', 'Horrible', 'Muy mala', 'Mala', 'Floja', 'Regular', 'Aceptable', 'Buena', 'Muy buena', 'Excelente', 'Obra maestra'];
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-const I = {plus:'<path d="M12 5v14M5 12h14"/>',back:'<path d="m15 6-6 6 6 6"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',edit:'<path d="M4 20h4L19 9l-4-4L4 16v4z"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',chev:'<path d="m9 6 6 6-6 6"/>',down:'<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',up:'<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',film:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M16 3v18M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'};
+const I = {plus:'<path d="M12 5v14M5 12h14"/>',back:'<path d="m15 6-6 6 6 6"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',edit:'<path d="M4 20h4L19 9l-4-4L4 16v4z"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',chev:'<path d="m9 6 6 6-6 6"/>',down:'<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',up:'<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',film:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M16 3v18M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',play:'<path d="M8 5v14l11-7z"/>'};
 const ic = (n, s = 22) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Array.from(crypto.getRandomValues(new Uint8Array(6)), b => (b % 36).toString(36)).join('');
@@ -31,18 +32,20 @@ const DB = { db:null,
   clear(s){ return this.req(s,'readwrite',o=>o.clear()); } };
 
 /* ---------- Estado ---------- */
-let movies = [], apiKey = '', view = {name:'seen'}, hist = [], tab = 'seen', sort = 'recent', installEvt = null, sheetRes = null, draft = null, query = '', results = null, searching = false, searchCtl = null, searchTimer = 0, wrapYear = new Date().getFullYear();
+let movies = [], apiKey = '', view = {name:'seen'}, hist = [], tab = 'seen', omdbKey = '', rtBusy = false, rtPaint = 0, installEvt = null, sheetRes = null, draft = null, query = '', results = null, searching = false, searchCtl = null, searchTimer = 0, wrapYear = new Date().getFullYear();
 
 /* ---------- Validación ---------- */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/, IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, ID_RE = /^[a-z0-9]{6,40}$/, PATH_RE = /^\/[A-Za-z0-9._-]+\.(jpg|jpeg|png)$/;
+const YT_RE = /^[A-Za-z0-9_-]{11}$/;
+const ytId = u => { const m = String(u || '').trim().match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/); return m ? m[1] : (YT_RE.test(String(u || '').trim()) ? String(u).trim() : ''); };
 const str = (v, n) => typeof v === 'string' ? v.slice(0, n) : '';
 const strList = (v, n) => Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 60)).slice(0, n) : [];
 function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return null; const title = str(m.title, 200).trim(); if (!title) return null;
   const rating = Number.isInteger(+m.rating) && +m.rating >= 1 && +m.rating <= 10 ? +m.rating : null;
   return {id:m.id, tmdb:Number.isInteger(+m.tmdb) && +m.tmdb > 0 ? +m.tmdb : null, title, original:str(m.original,200), year:/^\d{4}$/.test(String(m.year)) ? String(m.year) : '',
     poster:typeof m.poster === 'string' && IMG_RE.test(m.poster) ? m.poster : null, posterPath:typeof m.posterPath === 'string' && PATH_RE.test(m.posterPath) ? m.posterPath : '',
-    runtime:Number.isInteger(+m.runtime) && +m.runtime > 0 && +m.runtime < 1000 ? +m.runtime : null, genres:strList(m.genres, 8), directors:strList(m.directors, 4), cast:Array.isArray(m.cast) ? m.cast.filter(c => c && typeof c.n === 'string' && c.n.trim()).map(c => ({n:c.n.trim().slice(0,80), c:str(c.c, 80).trim()})).slice(0, 6) : [], castLoaded:!!m.castLoaded,
-    status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, note:str(m.note, 3000),
+    runtime:Number.isInteger(+m.runtime) && +m.runtime > 0 && +m.runtime < 1000 ? +m.runtime : null, genres:strList(m.genres, 8), directors:strList(m.directors, 4), cast:Array.isArray(m.cast) ? m.cast.filter(c => c && typeof c.n === 'string' && c.n.trim()).map(c => ({n:c.n.trim().slice(0,80), c:str(c.c, 80).trim()})).slice(0, 6) : [], castLoaded:!!m.castLoaded, trailer:YT_RE.test(m.trailer || '') ? m.trailer : '', trailerLoaded:!!m.trailerLoaded, imdb:/^tt\d{5,10}$/.test(m.imdb || '') ? m.imdb : '', rt:/^\d{1,3}%$/.test(m.rt || '') ? m.rt : '', rtAt:+m.rtAt || 0,
+    status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, ratedAt:+m.ratedAt || 0, note:str(m.note, 3000),
     added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
 
 /* ---------- TMDB ---------- */
@@ -59,11 +62,34 @@ async function posterData(path){ if (!PATH_RE.test(path || '')) return null;
     return IMG_RE.test(d) ? d : null; } catch(e){ return null; } }
 async function fromTmdb(id){
   const d = await tmdb(`/movie/${id}`, {append_to_response:'credits'});
-  const poster = await posterData(d.poster_path);
+  const poster = await posterData(d.poster_path); let trailer = '';
+  try { trailer = pickTrailer(await tmdb(`/movie/${id}/videos`, {language:'en-US'})); } catch(e){}
   return {tmdb:d.id, title:d.title || d.original_title || '', original:d.original_title && d.original_title !== d.title ? d.original_title : '', year:(d.release_date || '').slice(0,4),
-    posterPath:d.poster_path || '', poster, runtime:d.runtime || null, genres:(d.genres || []).map(g => g.name), directors:((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').map(c => c.name).slice(0,4), cast:castFrom(d.credits), castLoaded:true}; }
+    posterPath:d.poster_path || '', poster, runtime:d.runtime || null, genres:(d.genres || []).map(g => g.name), directors:((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').map(c => c.name).slice(0,4), cast:castFrom(d.credits), castLoaded:true, imdb:d.imdb_id || '', trailer, trailerLoaded:true}; }
 const castFrom = cr => ((cr && cr.cast) || []).slice().sort((a,b) => (a.order ?? 99) - (b.order ?? 99)).slice(0, 6).map(c => ({n:c.name || '', c:c.character || ''}));
-const castTried = new Set();
+const castTried = new Set(), trailerTried = new Set();
+function pickTrailer(d){ const v = ((d && d.results) || []).filter(x => x.site === 'YouTube' && YT_RE.test(x.key || '') && (!x.iso_639_1 || x.iso_639_1 === 'en'));
+  const score = x => (x.type === 'Trailer' ? 4 : x.type === 'Teaser' ? 1 : 0) + (x.official ? 2 : 0) + (/official trailer/i.test(x.name || '') ? 1 : 0);
+  const best = v.filter(x => score(x) > 0).sort((a,b) => score(b) - score(a) || (a.published_at || '').localeCompare(b.published_at || ''))[0];
+  return best ? best.key : ''; }
+async function loadTrailer(m){ if (trailerTried.has(m.id) || !m.tmdb || !apiKey || m.trailerLoaded) return; trailerTried.add(m.id);
+  try { m.trailer = pickTrailer(await tmdb(`/movie/${m.tmdb}/videos`, {language:'en-US'})); m.trailerLoaded = true; await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
+async function omdb(imdb){ const u = new URL(OMDB); u.searchParams.set('i', imdb); u.searchParams.set('apikey', omdbKey);
+  const r = await fetch(u, {referrerPolicy:'no-referrer', credentials:'omit'}); const d = await r.json().catch(() => ({}));
+  if (r.status === 401 || /invalid api key|no api key/i.test(d.Error || '')) { const e = new Error('badkey'); e.badkey = true; throw e; }
+  if (!r.ok) throw new Error('http ' + r.status); return d; }
+async function fetchRT(m){
+  if (!m.imdb && m.tmdb && apiKey){ try { const x = await tmdb(`/movie/${m.tmdb}/external_ids`); if (/^tt\d{5,10}$/.test(x.imdb_id || '')) m.imdb = x.imdb_id; } catch(e){} }
+  if (!m.imdb) { m.rtAt = Date.now(); return; }
+  const d = await omdb(m.imdb); const v = ((d.Ratings || []).find(x => x.Source === 'Rotten Tomatoes') || {}).Value || '';
+  m.rt = /^\d{1,3}%$/.test(v) ? v : ''; m.rtAt = Date.now(); }
+async function refreshRT(){ if (rtBusy || !omdbKey || !navigator.onLine) return;
+  const todo = movies.filter(m => m.status === 'watch' && (m.tmdb || m.imdb) && Date.now() - m.rtAt > RT_MAX_AGE); if (!todo.length) return;
+  rtBusy = true;
+  for (const m of todo){ try { await fetchRT(m); await saveM(m); } catch(e){ if (e.badkey){ toast('Tu clave de OMDb no funciona. Revísala en Ajustes.'); break; } }
+    clearTimeout(rtPaint); rtPaint = setTimeout(() => { if (view.name === 'watch' || (view.name === 'detail' && view.id === m.id)) render(); }, 250); }
+  rtBusy = false; }
+const rtFresh = rt => parseInt(rt, 10) >= 60;
 async function loadCast(m){ if (castTried.has(m.id) || !m.tmdb || !apiKey || m.castLoaded) return; castTried.add(m.id);
   try { const cr = await tmdb(`/movie/${m.tmdb}/credits`); m.cast = castFrom(cr); m.castLoaded = true; await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
 
@@ -88,15 +114,15 @@ const posterImg = m => m.poster ? `<img src="${m.poster}" alt="" loading="lazy">
 /* ---------- Vistas ---------- */
 function topBar(){ return `<header class="bar"><h1 class="title">Mis películas</h1><div class="bar-actions">${installEvt?'<button class="pill-btn" data-act="install">Instalar</button>':''}<button class="icon-btn" data-act="settings" aria-label="Ajustes">${ic('gear')}</button><button class="icon-btn icon-btn-solid" data-act="add" aria-label="Agregar película">${ic('plus')}</button></div></header>
   <div class="seg" role="tablist">${[['seen','Vistas'],['watch','Por ver'],['stats','Estadísticas']].map(([k,n]) => `<button role="tab" class="${tab===k?'on':''}" data-tab="${k}">${n}</button>`).join('')}</div>`; }
-const card = m => `<button class="poster" data-open="${esc(m.id)}" aria-label="${esc(m.title)}${m.rating?`, ${m.rating} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.status==='seen'&&m.rating?`<span class="score r${m.rating}">${m.rating}</span>`:''}</button>`;
+const card = m => `<button class="poster" data-open="${esc(m.id)}" aria-label="${esc(m.title)}${m.rating?`, ${m.rating} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.status==='seen'&&m.rating?`<span class="score r${m.rating}">${m.rating}</span>`:''}${m.status==='watch'&&m.rt?`<span class="score rt"><i class="${rtFresh(m.rt)?'fresh':'rotten'}"></i>${m.rt}</span>`:''}</button>`;
 function viewSeen(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen');
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Tu primera película</h2><p>Busca una película que hayas visto, dale tu puntuación y empieza tu colección.</p><button class="btn btn-primary" data-act="add">Agregar película</button></div>`;
-  const l = [...seen].sort(sort === 'best' ? (a,b) => (b.rating||0) - (a.rating||0) || (b.watched||'').localeCompare(a.watched||'') : (a,b) => (b.watched||'').localeCompare(a.watched||'') || b.added - a.added);
-  h += `<div class="toolbar"><span>${seen.length} película${seen.length>1?'s':''}</span><div class="chips">${[['recent','Recientes'],['best','Mejor puntuadas']].map(([k,n]) => `<button class="chip ${sort===k?'on':''}" data-sort="${k}">${n}</button>`).join('')}</div></div>`;
+  const l = [...seen].sort((a,b) => (b.watched||'').localeCompare(a.watched||'') || (b.ratedAt||b.added) - (a.ratedAt||a.added));
+  h += `<p class="toolbar"><span>${seen.length} película${seen.length>1?'s':''}</span></p>`;
   return h + `<div class="grid">${l.map(card).join('')}</div>`; }
-function viewWatch(){ let h = topBar(); const l = movies.filter(m => m.status === 'watch').sort((a,b) => b.added - a.added);
+function viewWatch(){ let h = topBar(); const l = movies.filter(m => m.status === 'watch').sort((a,b) => b.added - a.added); setTimeout(refreshRT, 0);
   if (!l.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas que te recomienden o que quieras ver más adelante.</p><button class="btn btn-primary" data-act="add">Agregar película</button></div>`;
-  return h + `<p class="toolbar"><span>${l.length} por ver</span></p><div class="grid">${l.map(card).join('')}</div>`; }
+  return h + `<p class="toolbar"><span>${l.length} por ver</span>${omdbKey?'<span>Calificación de Rotten Tomatoes</span>':''}</p><div class="grid">${l.map(card).join('')}</div>`; }
 function viewStats(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen' && m.watched);
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Aún no hay datos</h2><p>Cuando agregues películas vistas, aquí verás tus números.</p></div>`;
   const now = todayKey(), ym = now.slice(0,7), y = now.slice(0,4), month = seen.filter(m => m.watched.startsWith(ym)), year = seen.filter(m => m.watched.startsWith(y)), mins = l => l.reduce((s,m) => s + (m.runtime || 0), 0);
@@ -138,7 +164,9 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
     if (m.note) h += `<div class="box"><p class="quote">${esc(m.note)}</p></div>`;
     h += `<button class="btn btn-secondary" data-act="rate">Cambiar puntuación o comentario</button>`;
   } else h += `<button class="btn btn-primary" data-act="markSeen">Ya la vi</button>`;
-  const info = [['Dirección', m.directors.join(', ')], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
+  if (m.trailer) h += `<a class="btn btn-secondary" href="https://www.youtube.com/watch?v=${m.trailer}" target="_blank" rel="noopener noreferrer">${ic('play',18)} Ver tráiler en inglés</a>`;
+  else if (m.tmdb && !m.trailerLoaded && apiKey) setTimeout(() => loadTrailer(m), 0);
+  const info = [['Rotten Tomatoes', m.rt], ['Dirección', m.directors.join(', ')], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
   if (info.length) h += `<div class="box">${info.map(([k,v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
   if (m.cast.length) h += `<h2 class="section">Actores principales</h2><div class="box">${m.cast.map(c => `<div class="row cast"><b>${esc(c.n)}</b>${c.c?`<span>${esc(c.c)}</span>`:''}</div>`).join('')}</div>`;
   else if (m.tmdb && !m.castLoaded && apiKey) setTimeout(() => loadCast(m), 0);
@@ -160,17 +188,19 @@ function viewForm(){ const d = draft;
   <div class="two"><label class="field"><span>Año</span><input id="f_year" inputmode="numeric" maxlength="4" value="${esc(d.year)}" placeholder="2024" ${NO_SPELL}></label><label class="field"><span>Duración (minutos)</span><input id="f_runtime" inputmode="numeric" value="${d.runtime||''}" placeholder="120" ${NO_SPELL}></label></div>
   <label class="field"><span>Dirección</span><input id="f_dir" value="${esc(d.directors.join(', '))}" ${NO_SPELL}></label>
   <label class="field"><span>Actores principales</span><input id="f_cast" value="${esc(d.cast.map(c => c.n).join(', '))}" ${NO_SPELL}><small>Sepáralos con comas.</small></label>
+  <label class="field"><span>Tráiler (enlace de YouTube)</span><input id="f_trailer" type="url" inputmode="url" value="${d.trailer?'https://www.youtube.com/watch?v='+d.trailer:''}" placeholder="https://youtu.be/..." ${NO_SPELL}><em class="err" id="e_trailer"></em></label>
   <label class="field"><span>Géneros</span><input id="f_genres" value="${esc(d.genres.join(', '))}" placeholder="Drama, Comedia" ${NO_SPELL}><small>Sepáralos con comas.</small></label>
   <div class="field"><span>Cartel</span>${photoSlot()}</div>`; }
 function viewSettings(){ const standalone = window.matchMedia('(display-mode: standalone)').matches;
   return `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><h1 class="title title-sm">Ajustes</h1><span class="spacer"></span></header>
   <h2 class="section">Clave de TMDB</h2><div class="box"><label class="field"><span>Clave de API o token de lectura</span><input id="k_key" type="password" value="${esc(apiKey)}" placeholder="Pega aquí tu clave" ${NO_SPELL}><em class="err" id="e_key"></em><small>Se guarda solo en este celular. La consigues gratis en themoviedb.org, en tu perfil → Ajustes → API.</small></label><button class="btn btn-primary" data-act="saveKey">Guardar y probar</button></div>
+  <h2 class="section">Rotten Tomatoes</h2><div class="box"><label class="field"><span>Clave de OMDb</span><input id="o_key" type="password" value="${esc(omdbKey)}" placeholder="Opcional" ${NO_SPELL}><em class="err" id="e_okey"></em><small>Con esta clave, en «Por ver» aparece la calificación de Rotten Tomatoes de cada película. La consigues gratis en omdbapi.com.</small></label><button class="btn btn-primary" data-act="saveOmdb">Guardar y probar</button></div>
   <h2 class="section">Instalación</h2><div class="box">${standalone?'<p class="fine">Ya estás usando la app instalada.</p>':installEvt?`<button class="set-row" data-act="install"><span>Instalar Mis películas en el celular<small>Queda como una app con su propio ícono</small></span><span class="chev">${ic('down',18)}</span></button>`:'<p class="fine">Chrome todavía no ofrece instalarla. Abre la app en Chrome con internet, espera unos segundos y vuelve a entrar aquí.</p>'}</div>
   <h2 class="section">Copia de seguridad</h2><div class="box">
   <button class="set-row" data-act="exportBk"><span>Descargar copia<small>Tus películas, puntuaciones y carteles</small></span><span class="chev">${ic('down',18)}</span></button>
   <label class="set-row"><span>Restaurar una copia<small>Agrega lo que tenga el archivo</small></span><span class="chev">${ic('up',18)}</span><input type="file" accept="application/json,.json" id="f_import" hidden></label></div>
   <button class="btn btn-danger-text mt" data-act="wipe">Borrar todas las películas</button>
-  <p class="fine">Los datos y carteles de las películas vienen de TMDB. Esta app usa la API de TMDB, pero no está respaldada ni certificada por TMDB.</p><p class="ver">Versión ${APP_VERSION}</p>`; }
+  <p class="fine">Las calificaciones de Rotten Tomatoes se obtienen a través de OMDb. Los datos y carteles de las películas vienen de TMDB. Esta app usa la API de TMDB, pero no está respaldada ni certificada por TMDB.</p><p class="ver">Versión ${APP_VERSION}</p>`; }
 function render(){ const f = {seen:viewSeen, watch:viewWatch, stats:viewStats, wrap:viewWrap, detail:viewDetail, add:viewAdd, form:viewForm, settings:viewSettings}[view.name] || viewSeen; main.innerHTML = f(); }
 
 /* ---------- Búsqueda ---------- */
@@ -190,8 +220,9 @@ async function addFlow(info){
   const m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], cast:[]}, info, {status:choice}));
   if (choice === 'seen'){ const r = await rateBox(m); if (!r) return; Object.assign(m, r); }
   await saveM(m); tab = choice === 'seen' ? 'seen' : 'watch'; hist = [{name:tab}]; view = {name:'detail', id:m.id}; query = ''; results = null; render(); window.scrollTo(0,0);
-  toast(choice === 'seen' ? 'Agregada a tus vistas' : 'Agregada a por ver'); }
-function readRate(){ const d = $('#rateDate').value; return {rating:+$('#rateIn').value, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim()}; }
+  toast(choice === 'seen' ? 'Agregada a tus vistas' : 'Agregada a por ver');
+  if (choice === 'watch' && omdbKey) fetchRT(m).then(() => saveM(m)).then(() => { if (view.name === 'detail' && view.id === m.id) render(); }).catch(() => {}); }
+function readRate(){ const d = $('#rateDate').value; return {ratedAt:Date.now(), rating:+$('#rateIn').value, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim()}; }
 function compress(file){ return new Promise((res, rej) => { if (file.size > 40e6) return rej(); const url = URL.createObjectURL(file), img = new Image();
   img.onload = () => { const w = Math.min(500, img.width), s = w / img.width, c = document.createElement('canvas'); c.width = Math.round(img.width*s); c.height = Math.round(img.height*s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .82)); };
   img.onerror = () => { URL.revokeObjectURL(url); rej(); }; img.src = url; }); }
@@ -200,12 +231,13 @@ const A = {
   settings(){ go({name:'settings'}); },
   add(){ query = ''; results = null; go({name:'add'}); setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60); },
   back(){ back(); },
-  manual(){ draft = {_new:true, title:query.trim(), year:'', runtime:null, directors:[], genres:[], cast:[], poster:null, posterPath:''}; go({name:'form'}); },
-  editInfo(){ const m = curM(); if (!m) return; draft = {_new:false, id:m.id, title:m.title, year:m.year, runtime:m.runtime, directors:[...m.directors], genres:[...m.genres], cast:m.cast.map(c => ({...c})), poster:m.poster, posterPath:m.posterPath}; go({name:'form'}); },
+  manual(){ draft = {_new:true, title:query.trim(), year:'', runtime:null, directors:[], genres:[], cast:[], trailer:'', poster:null, posterPath:''}; go({name:'form'}); },
+  editInfo(){ const m = curM(); if (!m) return; draft = {_new:false, id:m.id, title:m.title, year:m.year, runtime:m.runtime, directors:[...m.directors], genres:[...m.genres], cast:m.cast.map(c => ({...c})), trailer:m.trailer, poster:m.poster, posterPath:m.posterPath}; go({name:'form'}); },
   rmPoster(){ draft.poster = null; draft.posterPath = ''; $('#photoSlot').outerHTML = photoSlot(); },
   async saveForm(){ const title = $('#f_title').value.trim(); if (!title){ $('#e_title').textContent = 'Escribe el título.'; $('#f_title').focus(); return; }
-    const split = v => v.split(',').map(x => x.trim()).filter(Boolean);
-    const info = {title, year:$('#f_year').value.trim(), runtime:parseInt($('#f_runtime').value, 10) || null, directors:split($('#f_dir').value), genres:split($('#f_genres').value), cast:split($('#f_cast').value).map(n => ({n, c:(draft.cast.find(c => c.n === n) || {}).c || ''})), castLoaded:true, poster:draft.poster};
+    const split = v => v.split(',').map(x => x.trim()).filter(Boolean), tr = $('#f_trailer').value.trim(), trailer = ytId(tr);
+    if (tr && !trailer){ $('#e_trailer').textContent = 'Ese no parece un enlace de YouTube.'; $('#f_trailer').focus(); return; }
+    const info = {title, year:$('#f_year').value.trim(), runtime:parseInt($('#f_runtime').value, 10) || null, directors:split($('#f_dir').value), genres:split($('#f_genres').value), cast:split($('#f_cast').value).map(n => ({n, c:(draft.cast.find(c => c.n === n) || {}).c || ''})), castLoaded:true, trailer, trailerLoaded:true, poster:draft.poster};
     if (draft._new){ draft = null; hist.pop(); view = {name:'add'}; await addFlow(Object.assign({tmdb:null, original:'', posterPath:''}, info)); if (view.name === 'add') render(); return; }
     const m = curMById(draft.id); if (!m) return; Object.assign(m, clean(Object.assign({}, m, info, {posterPath:draft.posterPath}))); draft = null;
     await saveM(m); toast('Guardado'); back(); },
@@ -221,6 +253,11 @@ const A = {
     const old = apiKey; apiKey = k;
     try { await tmdb('/configuration', {}); await DB.put('meta', {k:'key', v:k}); toast('Clave guardada. Ya puedes buscar películas.'); }
     catch(err){ apiKey = old; e.textContent = err.badkey ? 'TMDB no aceptó esa clave. Revisa que la copiaste completa.' : 'No se pudo comprobar. Revisa tu conexión a internet.'; } },
+  async saveOmdb(){ const k = $('#o_key').value.trim(), e = $('#e_okey'); e.textContent = '';
+    if (!k){ omdbKey = ''; await DB.put('meta', {k:'omdb', v:''}); toast('Clave borrada'); return; }
+    const old = omdbKey; omdbKey = k;
+    try { await omdb('tt0111161'); await DB.put('meta', {k:'omdb', v:k}); movies.forEach(m => { m.rtAt = 0; }); toast('Clave guardada. Las calificaciones aparecerán en Por ver.'); }
+    catch(err){ omdbKey = old; e.textContent = err.badkey ? 'OMDb no aceptó esa clave. Revisa que la activaste desde el correo.' : 'No se pudo comprobar. Revisa tu conexión a internet.'; } },
   async install(){ if (!installEvt) return; const e = installEvt; installEvt = null; try { await e.prompt(); await e.userChoice; } catch(err){} render(); },
   async exportBk(){ const data = {app:'mis-peliculas', v:1, created:new Date().toISOString(), movies};
     const url = URL.createObjectURL(new Blob([JSON.stringify(data)], {type:'application/json'})), a = document.createElement('a');
@@ -237,11 +274,10 @@ async function importBk(file){
 
 /* ---------- Eventos ---------- */
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-sort],[data-tmdb],[data-wrap]'); if (!t) return;
+  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-tmdb],[data-wrap]'); if (!t) return;
   const ds = t.dataset;
   if (ds.tab){ tab = ds.tab; view = {name:tab}; hist = []; render(); window.scrollTo(0,0); return; }
   if (ds.open) return go({name:'detail', id:ds.open});
-  if (ds.sort){ sort = ds.sort; return render(); }
   if (ds.wrap){ wrapYear = +ds.wrap; return go({name:'wrap'}); }
   if (ds.tmdb){ if (t.disabled) return; t.disabled = true; toast('Cargando datos…');
     try { const info = await fromTmdb(+ds.tmdb); await addFlow(info); } catch(err){ toast(err.badkey ? 'Tu clave de TMDB no funciona.' : 'No se pudieron cargar los datos. Revisa tu conexión.'); }
@@ -264,6 +300,7 @@ window.addEventListener('appinstalled', () => { installEvt = null; toast('Mis pe
   if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(() => {});
   if (!window.indexedDB || !await DB.open()){ main.innerHTML = `<div class="empty"><h2>No se puede guardar</h2><p>Este navegador no permite guardar datos. Si estás en modo incógnito, abre la app en una pestaña normal.</p></div>`; return; }
   try { const k = await DB.get('meta', 'key'); apiKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
+  try { const k = await DB.get('meta', 'omdb'); omdbKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
   try { movies = (await DB.all('movies')).map(clean).filter(Boolean); } catch(e){ movies = []; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   render();
