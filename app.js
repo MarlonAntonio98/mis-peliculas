@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 10, EXTRAS_V = 4, REGION = 'SV';
+const APP_VERSION = 11, EXTRAS_V = 5, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -66,7 +66,7 @@ function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return 
 /* ---------- TMDB ---------- */
 async function tmdb(path, params = {}, signal){
   if (!apiKey) { const e = new Error('nokey'); e.nokey = true; throw e; }
-  const u = new URL(API + path); Object.entries(Object.assign({language:'es-MX'}, params)).forEach(([k,v]) => u.searchParams.set(k, v));
+  const u = new URL(API + path); Object.entries(Object.assign({language:'en-US'}, params)).forEach(([k,v]) => u.searchParams.set(k, v));
   const opts = {signal, headers:{accept:'application/json'}, referrerPolicy:'no-referrer', credentials:'omit'};
   if (apiKey.startsWith('eyJ')) opts.headers.Authorization = 'Bearer ' + apiKey; else u.searchParams.set('api_key', apiKey);
   const r = await fetch(u, opts); if (r.status === 401) { const e = new Error('badkey'); e.badkey = true; throw e; } if (!r.ok) throw new Error('http ' + r.status);
@@ -87,18 +87,21 @@ function pickProv(wp){ const r = wp && wp.results && wp.results[REGION]; if (!r)
   const map = l => (l || []).sort((a,b) => (a.display_priority ?? 99) - (b.display_priority ?? 99)).map(p => ({n:p.provider_name, logo:p.logo_path || ''}));
   return {link:r.link || '', flat:map(r.flatrate), free:map([...(r.free || []), ...(r.ads || [])]), rent:map(r.rent), buy:map(r.buy)}; }
 async function esTrailer(kind, id){ try { const v = ((await tmdb(`/${kind}/${id}/videos`, {language:'es-MX'})).results) || []; return pickTrailer(v, 'es') || pickTrailer(v, 'es', true); } catch(e){ return ''; } }
+const GENRES_ES = {28:'Acción',12:'Aventura',16:'Animación',35:'Comedia',80:'Crimen',99:'Documental',18:'Drama',10751:'Familia',14:'Fantasía',36:'Historia',27:'Terror',10402:'Música',9648:'Misterio',10749:'Romance',878:'Ciencia ficción',10770:'Película de TV',53:'Suspenso',10752:'Bélica',37:'Western',10759:'Acción y aventura',10762:'Infantil',10763:'Noticias',10764:'Reality',10765:'Ciencia ficción y fantasía',10766:'Telenovela',10767:'Programa de entrevistas',10768:'Guerra y política'};
 const castFrom = cr => ((cr && cr.cast) || []).slice().sort((a,b) => (a.order ?? 99) - (b.order ?? 99)).slice(0, 6).map(c => ({n:c.name || '', c:c.character || (c.roles && c.roles[0] && c.roles[0].character) || '', id:c.id}));
 async function fetchInfo(kind, id){
   const d = await tmdb(`/${kind}/${id}`, {append_to_response:`credits,videos,external_ids,watch/providers${kind === 'movie' ? ',release_dates' : ''}`, include_video_language:'en,es'});
   const vids = (d.videos && d.videos.results) || [];
-  const base = {kind, tmdb:d.id, posterPath:d.poster_path || '', genres:(d.genres || []).map(g => g.name), cast:castFrom(d.credits), imdb:(d.external_ids && d.external_ids.imdb_id) || d.imdb_id || '',
+  const base = {kind, tmdb:d.id, posterPath:d.poster_path || '', genres:(d.genres || []).map(g => GENRES_ES[g.id] || g.name), cast:castFrom(d.credits), imdb:(d.external_ids && d.external_ids.imdb_id) || d.imdb_id || '',
     trailer:pickTrailer(vids, 'en'), trailerEs:pickTrailer(vids, 'es') || await esTrailer(kind, id), prov:pickProv(d['watch/providers']), provAt:Date.now(), extrasV:EXTRAS_V};
   if (kind === 'movie'){ const dirs = ((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').slice(0,4).map(c => ({n:c.name, id:c.id}));
     return Object.assign(base, {title:d.title || d.original_title || '', original:d.original_title && d.original_title !== d.title ? d.original_title : '', year:(d.release_date || '').slice(0,4), runtime:d.runtime || null, dirs, directors:dirs.map(x => x.n), digital:pickDigital(d.release_dates)}); }
   const dirs = (d.created_by || []).slice(0,4).map(c => ({n:c.name, id:c.id}));
   return Object.assign(base, {title:d.name || d.original_name || '', original:d.original_name && d.original_name !== d.name ? d.original_name : '', year:(d.first_air_date || '').slice(0,4), runtime:null, seasons:d.number_of_seasons || null, dirs, directors:dirs.map(x => x.n), digital:null}); }
 async function loadExtras(m){ if (extrasTried.has(m.id) || !m.tmdb || !apiKey || !navigator.onLine) return; extrasTried.add(m.id);
-  try { const x = await fetchInfo(m.kind, m.tmdb); ['genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
+  try { const x = await fetchInfo(m.kind, m.tmdb); const lang = m.extrasV < 5;
+    if (lang && x.title){ m.title = x.title; m.original = x.original; if (x.year) m.year = x.year; if (x.posterPath && x.posterPath !== m.posterPath){ m.posterPath = x.posterPath; m.poster = await posterData(x.posterPath) || m.poster; } }
+    ['genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
     if (!m.posterPath && x.posterPath) m.posterPath = x.posterPath; if (!m.poster && m.posterPath) m.poster = await posterData(m.posterPath);
     await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
 const needsExtras = m => m.tmdb && (m.extrasV < EXTRAS_V || Date.now() - m.provAt > PROV_MAX_AGE);
@@ -358,25 +361,21 @@ function wrapText(x, text, max, lines){ const words = text.split(/\s+/), out = [
 async function makeCard(m){
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
   x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
-  const img = await posterForCanvas(m), pw = 540, ph = 810, px = (W - pw) / 2, py = 80;
+  const img = await posterForCanvas(m), pw = 640, ph = 960, px = (W - pw) / 2, py = 70;
   if (img){ x.save(); x.filter = 'blur(60px)'; x.globalAlpha = .35; const s = Math.max(W / img.width, 700 / img.height); x.drawImage(img, (W - img.width * s) / 2, -60, img.width * s, img.height * s); x.restore();
     const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.55, 'rgba(0,0,0,.85)'); g.addColorStop(1, '#000'); x.fillStyle = g; x.fillRect(0, 0, W, H); }
   x.save(); x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 50; x.shadowOffsetY = 20; rrect(x, px, py, pw, ph, 30); x.fillStyle = '#16161A'; x.fill(); x.restore();
   x.save(); rrect(x, px, py, pw, ph, 30); x.clip();
   if (img){ const s = Math.max(pw / img.width, ph / img.height), w = img.width * s, h = img.height * s; x.drawImage(img, px + (pw - w) / 2, py + (ph - h) / 2, w, h); }
   x.restore();
-  x.textAlign = 'center'; x.fillStyle = '#F2F2F4'; x.font = `700 56px ${FONT}`;
-  const lines = wrapText(x, m.title, 920, 2); let y = py + ph + 92; lines.forEach((l, k) => x.fillText(l, W / 2, y + k * 66)); y += (lines.length - 1) * 66 + 52;
-  x.fillStyle = '#8E8E96'; x.font = `400 34px ${FONT}`; x.fillText([m.year, m.kind === 'tv' ? 'Serie' : ''].filter(Boolean).join('   '), W / 2, y);
   const num = String(m.rating), col = rateColor(m.rating); x.textAlign = 'left';
-  x.font = `800 170px ${FONT}`; const wn = x.measureText(num).width; x.font = `600 56px ${FONT}`; const w10 = x.measureText('/10').width; x.font = `500 38px ${FONT}`; const ww = x.measureText(WORDS[m.rating]).width;
-  const gap = 26, total = wn + gap + Math.max(w10, ww), x0 = (W - total) / 2, base = H - 92;
-  x.fillStyle = col; x.font = `800 170px ${FONT}`; x.fillText(num, x0, base);
-  x.fillStyle = '#F2F2F4'; x.font = `600 56px ${FONT}`; x.fillText('/10', x0 + wn + gap, base - 70);
-  x.fillStyle = col; x.font = `500 38px ${FONT}`; x.fillText(WORDS[m.rating], x0 + wn + gap, base - 8);
+  x.font = `800 190px ${FONT}`; const wn = x.measureText(num).width; x.font = `600 72px ${FONT}`; const w10 = x.measureText('/10').width;
+  const gap = 14, x0 = (W - (wn + gap + w10)) / 2, base = H - 95;
+  x.fillStyle = col; x.font = `800 190px ${FONT}`; x.fillText(num, x0, base);
+  x.fillStyle = '#F2F2F4'; x.font = `600 72px ${FONT}`; x.fillText('/10', x0 + wn + gap, base);
   const blob = await new Promise(res => c.toBlob(res, 'image/png'));
   const name = (m.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'pelicula') + `-${m.rating}.png`;
-  return {key:`${m.id}:${m.rating}:${m.updated}`, file:new File([blob], name, {type:'image/png'}), url:URL.createObjectURL(blob), text:`${m.title}${m.year ? ` (${m.year})` : ''}: le doy ${m.rating}/10.`}; }
+  return {key:`${m.id}:${m.rating}:${m.updated}`, file:new File([blob], name, {type:'image/png'}), url:URL.createObjectURL(blob)}; }
 async function offerShare(m, ask){ if (!m.rating) return; toast('Preparando imagen…');
   let card; try { card = await makeCard(m); } catch(e){ toast('No se pudo crear la imagen.'); return; }
   if (shareCache && shareCache.url) URL.revokeObjectURL(shareCache.url); shareCache = card;
@@ -384,7 +383,7 @@ async function offerShare(m, ask){ if (!m.rating) return; toast('Preparando imag
   $('#toast').classList.remove('show'); }
 async function doShare(){ const c = shareCache; if (!c) return;
   try {
-    if (navigator.canShare && navigator.canShare({files:[c.file]})) { await navigator.share({files:[c.file], text:c.text}); resolveSheet(null); return; }
+    if (navigator.canShare && navigator.canShare({files:[c.file]})) { await navigator.share({files:[c.file]}); resolveSheet(null); return; }
     const a = document.createElement('a'); a.href = c.url; a.download = c.file.name; document.body.appendChild(a); a.click(); a.remove(); toast('Imagen descargada. Compártela desde tu galería.'); resolveSheet(null);
   } catch(e){ if (e && e.name === 'AbortError') return; toast('No se pudo compartir. Inténtalo otra vez.'); } }
 
