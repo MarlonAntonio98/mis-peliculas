@@ -205,3 +205,12 @@ body{touch-action:pan-y}
 .prov a:active{opacity:.7}
 .prov-row:last-child{border-bottom:0}
 .poster .rank{position:absolute;left:6px;top:6px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.82);color:var(--text)}
+.ordering .poster.fixed{animation:none;opacity:.45;cursor:default}
+.rate-row{display:flex;align-items:center;justify-content:center;gap:22px}
+.step{width:48px;height:48px;border-radius:50%;border:1px solid var(--line2);background:transparent;color:var(--text);font-size:26px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.step:active{background:var(--field)}
+.rate-num{min-width:3.2ch;font-variant-numeric:tabular-nums}
+.imp-bar{height:8px;border-radius:99px;background:var(--field);overflow:hidden;margin:0 0 14px}
+.imp-bar i{display:block;height:100%;width:0;background:var(--gold);border-radius:99px;transition:width .25s}
+.imp-list{max-height:40vh;overflow:auto}
+.note-rt{display:block;width:100%;text-align:left;border:1px solid rgba(240,196,90,.35);background:transparent;color:var(--text);border-radius:14px;padding:12px 14px;font-size:14px;font-weight:500;margin:0 0 14px;cursor:pointer}

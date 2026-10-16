@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 13, EXTRAS_V = 5, REGION = 'SV';
+const APP_VERSION = 16, EXTRAS_V = 5, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -20,6 +20,9 @@ const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const fmtD = s => { if (!s) return ''; const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString('es-SV', {day:'numeric', month:'long', year:'numeric'}); };
 const daysTo = s => Math.round((new Date(s + 'T12:00') - new Date(todayKey() + 'T12:00')) / 864e5);
 const hours = min => { const h = Math.floor(min / 60), m = min % 60; return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`; };
+const rc = r => Math.min(10, Math.max(1, Math.round(r)));
+const fr = r => (Math.round(r * 10) / 10).toString();
+const word = r => WORDS[rc(r)];
 const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 
 /* ---------- Almacenamiento ---------- */
@@ -49,7 +52,7 @@ const strList = (v, n) => Array.isArray(v) ? v.filter(x => typeof x === 'string'
 const pid = v => Number.isInteger(+v) && +v > 0 ? +v : null;
 const provList = v => Array.isArray(v) ? v.filter(p => p && typeof p.n === 'string').map(p => ({n:p.n.slice(0,60), logo:PATH_RE.test(p.logo || '') ? p.logo : ''})).slice(0, 12) : [];
 function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return null; const title = str(m.title, 200).trim(); if (!title) return null;
-  const rating = Number.isInteger(+m.rating) && +m.rating >= 1 && +m.rating <= 10 ? +m.rating : null;
+  const rating = isFinite(+m.rating) && m.rating !== null && +m.rating >= 1 && +m.rating <= 10 ? Math.round(+m.rating * 10) / 10 : null;
   const prov = m.prov && typeof m.prov === 'object' ? {link:/^https:\/\/www\.themoviedb\.org\//.test(m.prov.link || '') ? m.prov.link : '', flat:provList(m.prov.flat), free:provList(m.prov.free), rent:provList(m.prov.rent), buy:provList(m.prov.buy)} : null;
   return {id:m.id, kind:m.kind === 'tv' ? 'tv' : 'movie', tmdb:pid(m.tmdb), title, original:str(m.original,200), year:/^\d{4}$/.test(String(m.year)) ? String(m.year) : '',
     poster:typeof m.poster === 'string' && IMG_RE.test(m.poster) ? m.poster : null, posterPath:typeof m.posterPath === 'string' && PATH_RE.test(m.posterPath) ? m.posterPath : '',
@@ -61,7 +64,7 @@ function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return 
     digital:m.digital && DATE_RE.test(m.digital.d) ? {d:m.digital.d, cc:/^[A-Z]{2}$/.test(m.digital.cc || '') ? m.digital.cc : '', fd:DATE_RE.test(m.digital.fd || '') ? m.digital.fd : '', fcc:/^[A-Z]{2}$/.test(m.digital.fcc || '') ? m.digital.fcc : ''} : null,
     prov, provAt:+m.provAt || 0, extrasV:+m.extrasV || 0,
     status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, ratedAt:+m.ratedAt || 0, note:str(m.note, 3000),
-    order:isFinite(+m.order) ? +m.order : 0, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
+    order:isFinite(+m.order) ? +m.order : 0, pos:m.pos === null || m.pos === undefined || !isFinite(+m.pos) ? null : +m.pos, lastRank:Number.isInteger(+m.lastRank) && +m.lastRank > 0 ? +m.lastRank : null, rtT:str(m.rtT, 200), rtY:Number.isInteger(+m.rtY) && +m.rtY > 0 ? +m.rtY : null, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
 
 /* ---------- TMDB ---------- */
 async function tmdb(path, params = {}, signal){
@@ -144,7 +147,7 @@ window.addEventListener('popstate', () => {
 function confirmBox(title, text, ok){ return new Promise(res => { sheetRes = v => res(!!v); openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(title)}</h2><p>${esc(text)}</p><button class="btn btn-danger" data-act="sheetOk">${esc(ok)}</button><button class="btn btn-ghost" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
 function chooseBox(m){ const tv = m.kind === 'tv'; return new Promise(res => { sheetRes = res; openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(m.title)}</h2><p>${esc([tv ? 'Serie' : 'Película', m.year, (m.directors || []).join(', ')].filter(Boolean).join(', '))}</p><div class="choose"><button class="btn btn-primary" data-act="pickSeen">Ya la vi</button><button class="btn btn-secondary" data-act="pickWatch">La quiero ver</button></div><button class="btn btn-ghost mt" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
 function rateBox(m){ return new Promise(res => { sheetRes = res; const r = m.rating || 7;
-  openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(m.title)}</h2><div class="rate"><p class="rate-num r${r}" id="rateNum">${r}</p><p class="rate-word" id="rateWord">${WORDS[r]}</p><input type="range" id="rateIn" min="1" max="10" step="1" value="${r}" aria-label="Puntuación del 1 al 10"><div class="ticks">${[1,2,3,4,5,6,7,8,9,10].map(n => `<span>${n}</span>`).join('')}</div></div>
+  openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(m.title)}</h2><div class="rate"><div class="rate-row"><button type="button" class="step" data-step="-0.1" aria-label="Bajar 0.1">−</button><p class="rate-num r${rc(r)}" id="rateNum">${fr(r)}</p><button type="button" class="step" data-step="0.1" aria-label="Subir 0.1">+</button></div><p class="rate-word" id="rateWord">${word(r)}</p><input type="range" id="rateIn" min="1" max="10" step="0.1" value="${r}" aria-label="Puntuación del 1 al 10"><div class="ticks">${[1,2,3,4,5,6,7,8,9,10].map(n => `<span>${n}</span>`).join('')}</div></div>
   <label class="field"><span>${m.kind === 'tv' ? 'La terminaste el' : 'La viste el'}</span><input type="date" id="rateDate" value="${m.watched || todayKey()}" max="${todayKey()}"></label>
   <label class="field"><span>Comentario</span><textarea id="rateNote" rows="3" maxlength="3000" placeholder="Lo que te gustó, una frase que te quedó…" ${NO_SPELL}>${esc(m.note || '')}</textarea></label>
   <button class="btn btn-primary" data-act="rateSave">Guardar</button><button class="btn btn-ghost" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
@@ -164,24 +167,25 @@ function topBar(){ return `<header class="bar"><h1 class="title">Mis películas<
   <div class="seg" role="tablist">${[['seen','Vistas'],['watch','Por ver'],['stats','Estadísticas']].map(([k,n]) => `<button role="tab" class="${tab===k?'on':''}" data-tab="${k}">${n}</button>`).join('')}</div><!--pane-->`; }
 const kindChips = () => movies.some(m => m.kind === 'tv') ? `<div class="chips">${[['all','Todo'],['movie','Películas'],['tv','Series']].map(([k,n]) => `<button class="chip ${kindFilter===k?'on':''}" data-kind="${k}">${n}</button>`).join('')}</div>` : '';
 function badgeFor(m){
-  if (m.status === 'seen') return m.rating ? `<span class="score r${m.rating}">${m.rating}</span>` : '';
+  if (m.status === 'seen') return m.rating ? `<span class="score r${rc(m.rating)}">${fr(m.rating)}</span>` : '';
   let b = m.rt ? `<span class="score rt"><i class="${rtFresh(m.rt)?'fresh':'rotten'}"></i>${m.rt}</span>` : '';
   const rk = rtRanks().get(m.id); if (rk) b += `<span class="rank">#${rk}</span>`;
   if (m.digital && daysTo(m.digital.d) > 0) b += `<span class="soon">Digital en ${daysTo(m.digital.d)} d</span>`;
   return b; }
-const card = (m, tag = 'button') => `<${tag} class="poster" ${tag==='button'?`data-open="${esc(m.id)}"`:`data-oid="${esc(m.id)}"`} aria-label="${esc(m.title)}${m.rating&&m.status==='seen'?`, ${m.rating} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.kind==='tv'?'<span class="kind">Serie</span>':''}${badgeFor(m)}</${tag}>`;
+const card = (m, tag = 'button', fixed = false) => `<${tag} class="poster${fixed ? ' fixed' : ''}" ${tag==='button'?`data-open="${esc(m.id)}"`:`data-oid="${esc(m.id)}"`} aria-label="${esc(m.title)}${m.rating&&m.status==='seen'?`, ${fr(m.rating)} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.kind==='tv'?'<span class="kind">Serie</span>':''}${badgeFor(m)}</${tag}>`;
 function viewSeen(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen');
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Tu primera película</h2><p>Busca una película o serie que hayas visto, dale tu puntuación y empieza tu colección.</p><button class="btn btn-primary" data-act="add">Agregar</button></div>`;
   const l = byKind(seen).sort((a,b) => (b.watched||'').localeCompare(a.watched||'') || (b.ratedAt||b.added) - (a.ratedAt||a.added));
   return h + kindChips() + `<p class="toolbar"><span>${countLabel(l)}</span></p><div class="grid">${l.map(m => card(m)).join('')}</div>`; }
-let rtList = null, watchOrder = 'manual';
+let rtList = null;
 const normT = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
 let rankCache = {key:'', map:new Map()};
 function rtRanks(){ if (!rtList) return new Map();
-  const key = rtList.updated + ':' + movies.map(m => m.id + m.title + m.year).join('|'); if (rankCache.key === key) return rankCache.map;
+  const key = rtList.updated + ':' + movies.map(m => m.id + m.title + m.year + m.rtT).join('|'); if (rankCache.key === key) return rankCache.map;
   const map = new Map(), entries = rtList.items.map(e => ({...e, n:normT(e.t)}));
   for (const m of movies){ if (m.kind !== 'movie') continue; const ns = [normT(m.title), normT(m.original)].filter(Boolean), yr = +m.year || 0, yOk = (e, tol) => !yr || !e.y || Math.abs(e.y - yr) <= tol;
-    let hit = entries.find(e => ns.includes(e.n) && yOk(e, 1));
+    let hit = m.rtT ? entries.find(e => e.n === normT(m.rtT) && (!m.rtY || !e.y || e.y === m.rtY)) : null;
+    if (!hit) hit = entries.find(e => ns.includes(e.n) && yOk(e, 1));
     if (!hit) hit = entries.find(e => yOk(e, 0) && ns.some(n => n.length > 3 && e.n.length > 3 && (e.n.includes(n) || n.includes(e.n))));
     if (hit) map.set(m.id, hit.r); }
   rankCache = {key, map}; return map; }
@@ -191,28 +195,53 @@ async function loadRtList(){
   try { const r = await fetch('rt-top300.json', {cache:'no-cache', credentials:'omit'}); if (!r.ok) return; const d = await r.json();
     if (!d || !Array.isArray(d.items)) return;
     const items = d.items.filter(e => e && Number.isInteger(e.r) && typeof e.t === 'string').map(e => ({r:e.r, t:e.t.slice(0,200), y:Number.isInteger(e.y) ? e.y : null})).slice(0, 400);
-    rtList = {k:'rtlist', updated:typeof d.updated === 'string' ? d.updated.slice(0,10) : '', items}; await DB.put('meta', rtList);
+    rtList = {k:'rtlist', updated:typeof d.updated === 'string' ? d.updated.slice(0,10) : '', items}; await DB.put('meta', rtList); syncLastRanks();
     if (view.name === 'watch' && !odrag && !tswipe) render(); } catch(e){} }
-const watchList = () => { const l = movies.filter(m => m.status === 'watch').sort((a,b) => a.order - b.order || b.added - a.added);
-  if (watchOrder === 'manual' || !rtList) return l;
-  const rk = rtRanks(), dir = watchOrder === 'rtDesc' ? -1 : 1, ranked = l.filter(m => rk.has(m.id)).sort((a,b) => (rk.get(a.id) - rk.get(b.id)) * dir);
-  return [...ranked, ...l.filter(m => !rk.has(m.id))]; };
+let rtSkip = new Set();
+const skipKey = e => normT(e.t) + '|' + (e.y || '');
+const missingRT = (all) => { if (!rtList) return []; const have = new Set(rtRanks().values()); return rtList.items.filter(e => !have.has(e.r) && (all || !rtSkip.has(skipKey(e)))); };
+let importing = null;
+async function findTmdb(e){
+  const pick = (list) => { const n = normT(e.t), ok = (list || []).filter(r => r && r.id);
+    return ok.find(r => normT(r.title) === n || normT(r.original_title) === n) || ok.find(r => e.y && Math.abs(+(r.release_date || '').slice(0,4) - e.y) <= 1) || null; };
+  const tries = e.y ? [{primary_release_year:e.y}, {year:e.y}, {}] : [{}];
+  for (const extra of tries){ const d = await tmdb('/search/movie', Object.assign({query:e.t, include_adult:'false'}, extra)); const r = pick(d.results); if (r) return r.id; }
+  return null; }
+async function importRT(retry){ if (retry){ rtSkip = new Set(); await DB.put('meta', {k:'rtskip', v:[]}).catch(() => {}); } const todo = missingRT(); if (!todo.length) return toast('Ya tienes todas las películas de la lista.');
+  if (!apiKey) return toast('Primero agrega tu clave de TMDB en Ajustes.');
+  importing = {stop:false, done:0, added:0, fail:[], total:todo.length};
+  openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>Agregando películas</h2><p id="impText">Preparando…</p><div class="imp-bar"><i id="impBar"></i></div><p class="fine">Deja la app abierta mientras termina. Puedes detenerlo cuando quieras; lo que ya se agregó se queda.</p><button class="btn btn-secondary" data-act="importStop" id="impBtn">Detener</button></div>`, 'dim');
+  const paint = () => { const t = $('#impText'), b = $('#impBar'); if (t) t.textContent = `${importing.done} de ${importing.total}: ${plural(importing.added, 'agregada', 'agregadas')}`; if (b) b.style.width = Math.round(importing.done / importing.total * 100) + '%'; };
+  for (const e of todo){ if (importing.stop || !ovState) break;
+    try { const id = await findTmdb(e); if (!id) throw 0;
+      if (!inLib('movie', id)){ const info = await fetchInfo('movie', id), m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], cast:[]}, info, {status:'watch', order:0, pos:null, rtT:e.t, rtY:e.y}));
+        if (m){ if (m.posterPath) m.poster = await posterData(m.posterPath); await saveM(m); importing.added++; } }
+      else { const ex = inLib('movie', id); if (!ex.rtT){ ex.rtT = e.t; ex.rtY = e.y; await saveM(ex); } } }
+    catch(err){ if (err && err.badkey){ importing.fail.push(e); break; } importing.fail.push(e); }
+    importing.done++; paint(); await new Promise(r => setTimeout(r, 80)); }
+  const res = importing; importing = null; syncLastRanks();
+  res.fail.forEach(e => rtSkip.add(skipKey(e))); DB.put('meta', {k:'rtskip', v:[...rtSkip]}).catch(() => {});
+  if (ovState) resolveSheet(null);
+  setTimeout(() => { render(); toast(`Listo: ${plural(res.added, 'película agregada', 'películas agregadas')}${res.fail.length ? `. ${res.fail.length} no se encontraron` : ''}.`);
+    if (res.fail.length) openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>No se encontraron</h2><p>Estas no aparecieron en TMDB con su título y año. Puedes buscarlas a mano con «+».</p><div class="box imp-list">${res.fail.map(e => `<div class="row"><span>#${e.r}</span><b>${esc(e.t)}${e.y ? ` (${e.y})` : ''}</b></div>`).join('')}</div><button class="btn btn-primary" data-act="sheetNo">Entendido</button></div>`, 'dim'); }, 300); }
+const sortKey = (m, rk) => rk.has(m.id) ? rk.get(m.id) : m.pos !== null ? m.pos : m.lastRank ? m.lastRank + .5 : 1000 + m.order;
+const watchList = () => { const rk = rtRanks(); return movies.filter(m => m.status === 'watch').sort((a,b) => sortKey(a, rk) - sortKey(b, rk) || (rk.has(b.id) - rk.has(a.id)) || a.order - b.order || b.added - a.added); };
+async function syncLastRanks(){ const rk = rtRanks(); for (const m of movies){ const r = rk.get(m.id); if (r && m.lastRank !== r){ m.lastRank = r; try { await DB.put('movies', m); } catch(e){} } } }
 function viewWatch(){ let h = topBar(); const all = watchList(); setTimeout(refreshRT, 0);
-  if (!all.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas y series que te recomienden o que quieras ver más adelante.</p><button class="btn btn-primary" data-act="add">Agregar</button></div>`;
-  if (ordering) return h + `<div class="toolbar"><span>Arrastra los carteles para ordenarlos</span><button class="pill-btn" data-act="orderDone">Listo</button></div><div class="grid ordering" id="orderGrid">${all.map(m => card(m, 'div')).join('')}</div>`;
-  const l = byKind(all), rk = rtRanks(), inList = all.filter(m => rk.has(m.id)).length;
-  const orderChips = rtList ? `<div class="chips">${[['manual','Mi orden'],['rtAsc','Lista de RT: 1 → 300'],['rtDesc','300 → 1']].map(([k,n]) => `<button class="chip ${watchOrder===k?'on':''}" data-worder="${k}">${n}</button>`).join('')}</div>` : '';
-  const right = watchOrder === 'manual' ? (kindFilter==='all'&&all.length>1 ? '<button class="link-btn" data-act="orderStart">Ordenar</button>' : '') : `<span>${inList} en la lista de RT</span>`;
-  return h + kindChips() + orderChips + `<div class="toolbar"><span>${l.length} por ver</span>${right}</div><div class="grid">${l.map(m => card(m)).join('')}</div>`; }
+  if (!all.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas y series que te recomienden o que quieras ver más adelante.</p>${missingRT().length ? `<button class="btn btn-primary" data-act="importRT">Agregar las ${missingRT().length} de la lista de RT</button><button class="btn btn-secondary" data-act="add">Agregar otra</button>` : '<button class="btn btn-primary" data-act="add">Agregar</button>'}</div>`;
+  const rk = rtRanks();
+  if (ordering) return h + `<div class="toolbar"><span>Mueve las que no son de la lista de RT</span><button class="pill-btn" data-act="orderDone">Listo</button></div><div class="grid ordering" id="orderGrid">${all.map(m => card(m, 'div', rk.has(m.id))).join('')}</div>`;
+  const free = all.filter(m => !rk.has(m.id)).length, miss = missingRT().length;
+  return h + (miss ? `<button class="note-rt" data-act="importRT">${plural(miss, 'película de la lista de RT no está', 'películas de la lista de RT no están')} en tu app. Agregarlas</button>` : '') + `<div class="toolbar"><span>${all.length} por ver</span>${free ? '<button class="link-btn" data-act="orderStart">Ordenar</button>' : ''}</div><div class="grid">${all.map(m => card(m)).join('')}</div>`; }
 function viewStats(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen' && m.watched);
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Aún no hay datos</h2><p>Cuando agregues películas o series vistas, aquí verás tus números.</p></div>`;
   const now = todayKey(), ym = now.slice(0,7), y = now.slice(0,4), month = seen.filter(m => m.watched.startsWith(ym)), year = seen.filter(m => m.watched.startsWith(y)), mins = l => l.reduce((s,m) => s + (m.kind === 'movie' ? m.runtime || 0 : 0), 0);
   const sub = l => [l.filter(m => m.kind === 'tv').length ? plural(l.filter(m => m.kind === 'tv').length, 'serie', 'series') : '', mins(l) ? hours(mins(l)) + ' de películas' : ''].filter(Boolean).join(', ');
   h += `<div class="stats-head"><div class="metric"><span>Este mes</span><b>${month.filter(m => m.kind === 'movie').length}</b><small>${month.length ? (sub(month) || 'películas') : 'películas'}</small></div><div class="metric"><span>Este año</span><b>${year.filter(m => m.kind === 'movie').length}</b><small>${year.length ? (sub(year) || 'películas') : 'películas'}</small></div></div>`;
-  const rated = seen.filter(m => m.rating), counts = Array(11).fill(0); rated.forEach(m => counts[m.rating]++); const mx = Math.max(1, ...counts);
+  const rated = seen.filter(m => m.rating), counts = Array(11).fill(0); rated.forEach(m => counts[Math.min(10, Math.floor(m.rating))]++); const mx = Math.max(1, ...counts);
   if (rated.length) h += `<h2 class="section">Cómo puntúas</h2><div class="hist">${counts.slice(1).map((c,k) => `<div><small>${c||''}</small><i class="rb${k+1} h${c?Math.max(1,Math.round(c/mx*10)):0}"></i></div>`).join('')}</div><div class="hist-labels">${[1,2,3,4,5,6,7,8,9,10].map(n => `<span>${n}</span>`).join('')}</div>`;
   const top = [...rated].sort((a,b) => b.rating - a.rating || (b.watched||'').localeCompare(a.watched||'')).slice(0,10);
-  if (top.length) h += `<h2 class="section">Tu top 10</h2><div class="box top">${top.map((m,k) => `<button class="top-row" data-open="${esc(m.id)}"><span>${k+1}</span><span class="top-thumb">${posterImg(m)}</span><b>${esc(m.title)}</b><strong class="r${m.rating}">${m.rating}</strong></button>`).join('')}</div>`;
+  if (top.length) h += `<h2 class="section">Tu top 10</h2><div class="box top">${top.map((m,k) => `<button class="top-row" data-open="${esc(m.id)}"><span>${k+1}</span><span class="top-thumb">${posterImg(m)}</span><b>${esc(m.title)}</b><strong class="r${rc(m.rating)}">${fr(m.rating)}</strong></button>`).join('')}</div>`;
   const rank = (key, l = seen) => { const c = {}; l.forEach(m => m[key].forEach(v => { c[v] = (c[v] || 0) + 1; })); return Object.entries(c).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es')).slice(0,5); };
   const bars = list => { const t = list[0] ? list[0][1] : 1; return `<div class="box bars">${list.map(([n,c]) => `<div class="bar-row"><span>${esc(n)}</span><span>${c}</span><i><b class="w${Math.max(1,Math.round(c/t*10))}"></b></i></div>`).join('')}</div>`; };
   const g = rank('genres'), d = rank('directors', seen.filter(m => m.kind === 'movie'));
@@ -231,8 +260,8 @@ function viewWrap(){ const yy = String(wrapYear), l = movies.filter(m => m.statu
   const g = {}; l.forEach(m => m.genres.forEach(x => { g[x] = (g[x] || 0) + 1; })); const fav = Object.entries(g).sort((a,b) => b[1] - a[1])[0];
   h += `<div class="wrap-hero"><b>${mv.length}</b><span>${mv.length === 1 ? 'película vista' : 'películas vistas'} en ${yy}${tv ? `, y ${plural(tv, 'serie', 'series')}` : ''}</span></div>`;
   if (mins) h += `<div class="wrap-card"><span>Tiempo viendo películas</span><b>${hours(mins)}</b></div>`;
-  if (best) h += `<div class="wrap-card"><span>Tu favorita</span><p>${esc(best.title)}</p><small class="r${best.rating}">${best.rating} de 10</small></div>`;
-  if (worst && worst !== best && worst.rating < best.rating) h += `<div class="wrap-card"><span>La que menos te gustó</span><p>${esc(worst.title)}</p><small class="r${worst.rating}">${worst.rating} de 10</small></div>`;
+  if (best) h += `<div class="wrap-card"><span>Tu favorita</span><p>${esc(best.title)}</p><small class="r${rc(best.rating)}">${fr(best.rating)} de 10</small></div>`;
+  if (worst && worst !== best && worst.rating < best.rating) h += `<div class="wrap-card"><span>La que menos te gustó</span><p>${esc(worst.title)}</p><small class="r${rc(worst.rating)}">${fr(worst.rating)} de 10</small></div>`;
   h += `<div class="wrap-card"><span>El mes en que más viste</span><p>${MONTHS[bm].charAt(0).toUpperCase() + MONTHS[bm].slice(1)}</p><small>${plural(byMonth[bm], 'título', 'títulos')}</small></div>`;
   if (streak > 1) h += `<div class="wrap-card"><span>Tu racha más larga</span><p>${streak} días seguidos</p></div>`;
   if (fav) h += `<div class="wrap-card"><span>Tu género del año</span><p>${esc(fav[0])}</p><small>${plural(fav[1], 'título', 'títulos')}</small></div>`;
@@ -242,14 +271,14 @@ const PROV_SEARCH = [[/netflix/i, 'https://www.netflix.com/search?q='], [/prime 
   [/hbo|\bmax\b/i, 'https://play.hbomax.com/search?q='], [/apple tv/i, 'https://tv.apple.com/search?term='], [/paramount/i, 'https://www.paramountplus.com/search/?q='], [/crunchyroll/i, 'https://www.crunchyroll.com/search?q='],
   [/mubi/i, 'https://mubi.com/search/films?query='], [/tubi/i, 'https://tubitv.com/search/'], [/pluto/i, 'https://pluto.tv/search/details?query='], [/youtube/i, 'https://www.youtube.com/results?search_query='], [/plex/i, 'https://watch.plex.tv/search?q=']];
 const provUrl = (p, m) => { const t = encodeURIComponent(m.title), hit = PROV_SEARCH.find(([re]) => re.test(p.n)); return hit ? hit[1] + t : 'https://www.justwatch.com/sv/buscar?q=' + t; };
-const provRow = (label, l, m) => l.length ? `<div class="prov-row"><span>${label}</span><div class="prov">${l.map(p => `<a href="${esc(provUrl(p, m))}" target="_blank" rel="noopener noreferrer" aria-label="Buscar en ${esc(p.n)}">${p.logo ? `<img src="${IMG}w92${p.logo}" alt="${esc(p.n)}" title="${esc(p.n)}">` : `<em>${esc(p.n)}</em>`}</a>`).join('')}</div></div>` : '';
+const provRow = (label, l, m) => l.length ? `<div class="prov-row"><span>${label}</span><div class="prov">${l.map(p => `<a href="${esc(provUrl(p, m))}" data-copy="${esc(m.title)}" target="_blank" rel="noopener noreferrer" aria-label="Buscar en ${esc(p.n)}">${p.logo ? `<img src="${IMG}w92${p.logo}" alt="${esc(p.n)}" title="${esc(p.n)}">` : `<em>${esc(p.n)}</em>`}</a>`).join('')}</div></div>` : '';
 function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({seen:viewSeen, watch:viewWatch, stats:viewStats}[tab] || viewSeen)(); }
   if (needsExtras(m) && apiKey) setTimeout(() => loadExtras(m), 0);
   const tv = m.kind === 'tv';
   let h = `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><div class="bar-actions"><button class="icon-btn" data-act="editInfo" aria-label="Editar datos">${ic('edit')}</button></div></header>`;
   h += `<div class="d-top"><div class="d-poster">${posterImg(m)}</div><div>${tv?'<p class="d-kind">Serie</p>':''}<h1 class="d-title">${esc(m.title)}</h1><p class="d-meta">${esc([m.year, tv ? (m.seasons ? plural(m.seasons, 'temporada', 'temporadas') : '') : (m.runtime ? hours(m.runtime) : '')].filter(Boolean).join(', '))}</p>${m.original?`<p class="d-meta">${esc(m.original)}</p>`:''}</div></div>`;
   if (m.status === 'seen'){
-    h += m.rating ? `<div class="d-score"><b class="r${m.rating}">${m.rating}</b><span>de 10, ${WORDS[m.rating].toLowerCase()}</span></div>` : '';
+    h += m.rating ? `<div class="d-score"><b class="r${rc(m.rating)}">${fr(m.rating)}</b><span>de 10, ${word(m.rating).toLowerCase()}</span></div>` : '';
     h += `<p class="d-sub">${m.watched ? `${tv ? 'La terminaste' : 'La viste'} el ${fmtD(m.watched)}.` : ''}</p>`;
     if (m.note) h += `<div class="box"><p class="quote">${esc(m.note)}</p></div>`;
     h += `${m.rating?`<button class="btn btn-primary" data-act="shareRating">${ic('share',18)} Compartir mi puntuación</button>`:''}<button class="btn btn-secondary" data-act="rate">Cambiar puntuación o comentario</button>`;
@@ -270,7 +299,7 @@ function viewAdd(){ let h = `<header class="bar"><button class="icon-btn" data-a
   if (!apiKey) return h + `<div class="hint">Para buscar películas y series con su cartel y sus datos, agrega tu clave de TMDB en Ajustes.<button class="btn btn-primary" data-act="settings">Ir a Ajustes</button><button class="btn btn-secondary" data-act="manual">Agregar a mano</button></div>`;
   return h + `<div class="search"><div class="seg">${[['movie','Películas'],['tv','Series'],['person','Actores y directores']].map(([k,n]) => `<button class="${searchKind===k?'on':''}" data-skind="${k}">${n}</button>`).join('')}</div><input id="q" type="search" placeholder="${searchKind==='person'?'Nombre del actor o director':'Busca por título'}" value="${esc(query)}" aria-label="Buscar" enterkeyhint="search" ${NO_SPELL}></div><div id="results">${resultsHTML()}</div>`; }
 const inLib = (kind, id) => movies.find(m => m.kind === kind && m.tmdb === id);
-function libTag(kind, id){ const m = inLib(kind, id); return !m ? '' : m.status === 'seen' ? (m.rating ? `<span class="lib r${m.rating}">${m.rating}</span>` : '<span class="lib">Vista</span>') : '<span class="lib">Por ver</span>'; }
+function libTag(kind, id){ const m = inLib(kind, id); return !m ? '' : m.status === 'seen' ? (m.rating ? `<span class="lib r${rc(m.rating)}">${fr(m.rating)}</span>` : '<span class="lib">Vista</span>') : '<span class="lib">Por ver</span>'; }
 function resultsHTML(){
   if (searching) return '<div class="spin" aria-label="Buscando"></div>';
   if (!query.trim()) return `<p class="hint">${searchKind==='person' ? 'Busca a un actor, actriz o director para ver sus películas y series.' : 'Escribe el título, en español o en su idioma original.'}</p>`;
@@ -290,7 +319,7 @@ function viewPerson(){ const p = people.get(view.pid);
   h += `<div class="person"><span class="person-photo">${PATH_RE.test(p.photo||'')?`<img src="${IMG}w185${p.photo}" alt="">`:ic('user',34)}</span><div><h1 class="d-title">${esc(p.name)}</h1><p class="d-meta">${esc(dept(p.dept))}</p>${seen?`<p class="d-meta">Has visto ${plural(seen, 'título', 'títulos')}</p>`:''}</div></div>`;
   if (roles.length > 1) h += `<div class="chips">${roles.map(([k,n]) => `<button class="chip ${personRole===k?'on':''}" data-role="${k}">${n}</button>`).join('')}</div>`;
   if (!list.length) return h + '<p class="hint">No hay títulos para mostrar.</p>';
-  return h + `<div class="grid">${list.map(c => { const m = inLib(c.kind, c.id); return `<button class="poster" ${m ? `data-open="${esc(m.id)}"` : `data-add="${c.kind}:${c.id}"`} aria-label="${esc(c.title)}">${PATH_RE.test(c.poster||'')?`<img src="${IMG}w342${c.poster}" alt="" loading="lazy">`:`<span class="ph">${esc(c.title)}</span>`}${c.kind==='tv'?'<span class="kind">Serie</span>':''}${m ? (m.status === 'seen' && m.rating ? `<span class="score r${m.rating}">${m.rating}</span>` : `<span class="score">${m.status === 'seen' ? 'Vista' : 'Por ver'}</span>`) : (c.year ? `<span class="year">${c.year}</span>` : '')}</button>`; }).join('')}</div>`; }
+  return h + `<div class="grid">${list.map(c => { const m = inLib(c.kind, c.id); return `<button class="poster" ${m ? `data-open="${esc(m.id)}"` : `data-add="${c.kind}:${c.id}"`} aria-label="${esc(c.title)}">${PATH_RE.test(c.poster||'')?`<img src="${IMG}w342${c.poster}" alt="" loading="lazy">`:`<span class="ph">${esc(c.title)}</span>`}${c.kind==='tv'?'<span class="kind">Serie</span>':''}${m ? (m.status === 'seen' && m.rating ? `<span class="score r${rc(m.rating)}">${fr(m.rating)}</span>` : `<span class="score">${m.status === 'seen' ? 'Vista' : 'Por ver'}</span>`) : (c.year ? `<span class="year">${c.year}</span>` : '')}</button>`; }).join('')}</div>`; }
 async function loadPerson(id){ if (people.has(id) || loadPerson.busy === id) return; loadPerson.busy = id;
   try { const d = await tmdb(`/person/${id}`, {append_to_response:'combined_credits'}); const cc = d.combined_credits || {};
     const norm = (l, crew) => { const seen = new Set(); return (l || []).filter(c => (c.media_type === 'movie' || c.media_type === 'tv') && (!crew || c.job === 'Director' || c.job === 'Creator') && !(c.genre_ids || []).some(g => g === 10767 || g === 10763) && !/^(self|himself|herself|narrator)\b/i.test(c.character || ''))
@@ -317,6 +346,7 @@ function viewSettings(){ const standalone = window.matchMedia('(display-mode: st
   return `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><h1 class="title title-sm">Ajustes</h1><span class="spacer"></span></header>
   <h2 class="section">Clave de TMDB</h2><div class="box"><label class="field"><span>Clave de API o token de lectura</span><input id="k_key" type="password" value="${esc(apiKey)}" placeholder="Pega aquí tu clave" ${NO_SPELL}><em class="err" id="e_key"></em><small>Se guarda solo en este celular. La consigues gratis en themoviedb.org, en tu perfil → Ajustes → API.</small></label><button class="btn btn-primary" data-act="saveKey">Guardar y probar</button></div>
   <h2 class="section">Rotten Tomatoes</h2><div class="box"><label class="field"><span>Clave de OMDb</span><input id="o_key" type="password" value="${esc(omdbKey)}" placeholder="Opcional" ${NO_SPELL}><em class="err" id="e_okey"></em><small>Con esta clave, en «Por ver» aparece el porcentaje de la crítica en Rotten Tomatoes. La consigues gratis en omdbapi.com.</small></label><button class="btn btn-primary" data-act="saveOmdb">Guardar y probar</button></div>
+  ${rtList ? `<h2 class="section">Lista de las 300 mejores de RT</h2><div class="box">${missingRT().length ? `<button class="set-row" data-act="importRT"><span>Agregar las que me faltan<small>${plural(missingRT().length, 'película de la lista no está', 'películas de la lista no están')} en tu app</small></span><span class="chev">${ic('plus',18)}</span></button>` : '<p class="fine">Ya tienes todas las películas de la lista.</p>'}${missingRT(true).length > missingRT().length ? `<button class="set-row" data-act="importRetry"><span>Reintentar las que no se encontraron<small>${plural(missingRT(true).length - missingRT().length, 'película', 'películas')}</small></span><span class="chev">${ic('chev',18)}</span></button>` : ''}<p class="fine">Lista actualizada el ${fmtD(rtList.updated)}.</p></div>` : ''}
   <h2 class="section">Instalación</h2><div class="box">${standalone?'<p class="fine">Ya estás usando la app instalada.</p>':installEvt?`<button class="set-row" data-act="install"><span>Instalar Mis películas en el celular<small>Queda como una app con su propio ícono</small></span><span class="chev">${ic('down',18)}</span></button>`:'<p class="fine">Chrome todavía no ofrece instalarla. Abre la app en Chrome con internet, espera unos segundos y vuelve a entrar aquí.</p>'}</div>
   <h2 class="section">Copia de seguridad</h2><div class="box">
   <button class="set-row" data-act="exportBk"><span>Descargar copia<small>Tus películas, series, puntuaciones y carteles</small></span><span class="chev">${ic('down',18)}</span></button>
@@ -340,13 +370,14 @@ function paintResults(){ const r = $('#results'); if (r) r.innerHTML = resultsHT
 async function addFlow(info){
   if (info.tmdb){ const ex = inLib(info.kind, info.tmdb); if (ex){ toast('Ya está en tu colección'); go({name:'detail', id:ex.id}); return; } }
   const choice = await chooseBox(info); if (!choice) return;
-  const m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], cast:[]}, info, {status:choice, order:choice === 'watch' ? Math.min(0, ...movies.filter(x => x.status === 'watch').map(x => x.order)) - 1 : 0}));
+  const m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], cast:[]}, info, {status:choice, order:0, pos:choice === 'watch' ? -Date.now() / 1e13 : null}));
   if (choice === 'seen'){ const r = await rateBox(m); if (!r) return; Object.assign(m, r); }
   if (!m.poster && m.posterPath) m.poster = await posterData(m.posterPath);
   await saveM(m); go({name:'detail', id:m.id});
   if (choice === 'seen') offerShare(m, true); else toast('Agregada a por ver');
   if (choice === 'watch' && omdbKey) fetchRT(m).then(() => saveM(m)).then(() => { if (view.name === 'detail' && view.id === m.id) render(); }).catch(() => {}); }
-function readRate(){ const d = $('#rateDate').value; return {ratedAt:Date.now(), rating:+$('#rateIn').value, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim()}; }
+function paintRate(v, buzz = true){ const n = $('#rateNum'); if (!n) return; n.textContent = fr(v); n.className = 'rate-num r' + rc(v); $('#rateWord').textContent = word(v); if (buzz && Number.isInteger(Math.round(v * 10) / 10)) { try { if (navigator.vibrate) navigator.vibrate(6); } catch(err){} } }
+function readRate(){ const d = $('#rateDate').value; return {ratedAt:Date.now(), rating:Math.round(+$('#rateIn').value * 10) / 10, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim()}; }
 function compress(file){ return new Promise((res, rej) => { if (file.size > 40e6) return rej(); const url = URL.createObjectURL(file), img = new Image();
   img.onload = () => { const w = Math.min(500, img.width), s = w / img.width, c = document.createElement('canvas'); c.width = Math.round(img.width*s); c.height = Math.round(img.height*s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .82)); };
   img.onerror = () => { URL.revokeObjectURL(url); rej(); }; img.src = url; }); }
@@ -400,13 +431,13 @@ async function makeCard(m){
   x.save(); rrect(x, px, py, pw, ph, 30); x.clip();
   if (img){ const s = Math.max(pw / img.width, ph / img.height), w = img.width * s, h = img.height * s; x.drawImage(img, px + (pw - w) / 2, py + (ph - h) / 2, w, h); }
   x.restore();
-  const num = String(m.rating), col = rateColor(m.rating); x.textAlign = 'left';
+  const num = fr(m.rating), col = rateColor(m.rating); x.textAlign = 'left';
   x.font = `800 190px ${FONT}`; const wn = x.measureText(num).width; x.font = `600 72px ${FONT}`; const w10 = x.measureText('/10').width;
   const gap = 14, x0 = (W - (wn + gap + w10)) / 2, base = H - 95;
   x.fillStyle = col; x.font = `800 190px ${FONT}`; x.fillText(num, x0, base);
   x.fillStyle = '#F2F2F4'; x.font = `600 72px ${FONT}`; x.fillText('/10', x0 + wn + gap, base);
   const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-  const name = (m.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'pelicula') + `-${m.rating}.png`;
+  const name = (m.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'pelicula') + `-${fr(m.rating).replace('.', '-')}.png`;
   return {key:`${m.id}:${m.rating}:${m.updated}`, file:new File([blob], name, {type:'image/png'}), url:URL.createObjectURL(blob)}; }
 async function offerShare(m, ask){ if (!m.rating) return; toast('Preparando imagen…');
   let card; try { card = await makeCard(m); } catch(e){ toast('No se pudo crear la imagen.'); return; }
@@ -434,10 +465,16 @@ function orderLoop(){ const d = odrag; if (!d) return; const edge = 110; let v =
   if (v){ window.scrollBy(0, v); orderMove(); } d.raf = requestAnimationFrame(orderLoop); }
 async function orderEnd(){ const d = odrag; if (!d) return; odrag = null; cancelAnimationFrame(d.raf);
   d.el.style.transition = 'transform .22s cubic-bezier(.2,.8,.2,1)'; d.el.style.transform = ''; setTimeout(() => { d.el.classList.remove('dragging'); d.el.style.transition = ''; }, 230);
-  const ids = [...$('#orderGrid').children].map(e => e.dataset.oid), changed = [];
-  ids.forEach((id, k) => { const m = movies.find(x => x.id === id); if (m && m.order !== k){ m.order = k; changed.push(m); } });
+  const rk = rtRanks(), list = [...$('#orderGrid').children].map(e => movies.find(x => x.id === e.dataset.oid)).filter(Boolean), changed = new Set();
+  let k = 0;
+  while (k < list.length){ if (rk.has(list[k].id)){ k++; continue; }
+    let j = k; while (j < list.length && !rk.has(list[j].id)) j++;
+    const prev = k > 0 ? rk.get(list[k-1].id) : 0, next = j < list.length ? rk.get(list[j].id) : prev + 1, run = list.slice(k, j);
+    run.forEach((m, i) => { const p = prev + (i + 1) / (run.length + 1) * (next - prev); if (m.pos !== p){ m.pos = p; changed.add(m); } });
+    k = j; }
+  list.forEach((m, i) => { if (m.order !== i){ m.order = i; changed.add(m); } });
   for (const m of changed){ try { await DB.put('movies', m); } catch(e){} } }
-document.addEventListener('pointerdown', e => { const el = ordering && e.target.closest('#orderGrid .poster'); if (!el || !e.isPrimary) return; e.preventDefault();
+document.addEventListener('pointerdown', e => { const el = ordering && e.target.closest('#orderGrid .poster'); if (!el || !e.isPrimary || el.classList.contains('fixed')) return; e.preventDefault();
   const r = el.getBoundingClientRect(); odrag = {el, x:e.clientX, y:e.clientY, ox:e.clientX - r.left, oy:e.clientY - r.top, pid:e.pointerId};
   try { el.setPointerCapture(e.pointerId); } catch(err){} el.classList.add('dragging'); orderMove(); odrag.raf = requestAnimationFrame(orderLoop);
   try { if (navigator.vibrate) navigator.vibrate(10); } catch(err){} });
@@ -483,6 +520,8 @@ const A = {
     const old = omdbKey; omdbKey = k;
     try { await omdb('tt0111161'); await DB.put('meta', {k:'omdb', v:k}); movies.forEach(m => { m.rtAt = 0; }); toast('Clave guardada. Las calificaciones aparecerán en Por ver.'); }
     catch(err){ omdbKey = old; e.textContent = err.badkey ? 'OMDb no aceptó esa clave. Revisa que la activaste desde el correo.' : 'No se pudo comprobar. Revisa tu conexión a internet.'; } },
+  importRT(){ importRT(false); }, importRetry(){ importRT(true); },
+  importStop(){ if (importing){ importing.stop = true; const b = $('#impBtn'); if (b){ b.textContent = 'Deteniendo…'; b.disabled = true; } } },
   async install(){ if (!installEvt) return; const e = installEvt; installEvt = null; try { await e.prompt(); await e.userChoice; } catch(err){} render(); },
   async exportBk(){ const data = {app:'mis-peliculas', v:2, created:new Date().toISOString(), movies};
     const url = URL.createObjectURL(new Blob([JSON.stringify(data)], {type:'application/json'})), a = document.createElement('a');
@@ -498,6 +537,13 @@ async function importBk(file){
 
 /* ---------- Eventos ---------- */
 document.addEventListener('click', async e => {
+  const st = e.target.closest('[data-step]');
+  if (st){ const i = $('#rateIn'); if (!i) return; const v = Math.min(10, Math.max(1, Math.round((+i.value + +st.dataset.step) * 10) / 10)); i.value = v; paintRate(v); return; }
+  const cp = e.target.closest('a[data-copy]');
+  if (cp){ e.preventDefault(); const url = cp.href, title = cp.dataset.copy; let ok = false;
+    try { await navigator.clipboard.writeText(title); ok = true; } catch(err){}
+    toast(ok ? `Título copiado: pégalo en el buscador si no aparece` : 'Abriendo la plataforma…');
+    setTimeout(() => window.open(url, '_blank', 'noopener'), ok ? 450 : 0); return; }
   if (ordering && e.target.closest('#orderGrid')) return;
   if (Date.now() - swipedAt < 400) return;
   const t = e.target.closest('[data-act],[data-open],[data-tab],[data-add],[data-wrap],[data-kind],[data-worder],[data-skind],[data-person],[data-role],[data-fkind]'); if (!t) return;
@@ -505,7 +551,6 @@ document.addEventListener('click', async e => {
   if (ds.tab){ resetToRoot(ds.tab); return; }
   if (ds.open) return go({name:'detail', id:ds.open});
   if (ds.kind){ kindFilter = ds.kind; return render(); }
-  if (ds.worder){ watchOrder = ds.worder; DB.put('meta', {k:'worder', v:watchOrder}).catch(() => {}); render(); window.scrollTo(0,0); return; }
   if (ds.skind){ if (searchKind === ds.skind) return; searchKind = ds.skind; results = null; render(); const q = $('#q'); if (q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); } runSearch(); return; }
   if (ds.person){ return go({name:'person', pid:+ds.person}); }
   if (ds.role){ personRole = ds.role; return render(); }
@@ -519,7 +564,7 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('input', e => { const t = e.target;
   if (t.id === 'q'){ query = t.value; runSearch(); }
-  if (t.id === 'rateIn'){ const v = +t.value, n = $('#rateNum'); n.textContent = v; n.className = 'rate-num r' + v; $('#rateWord').textContent = WORDS[v]; try { if (navigator.vibrate) navigator.vibrate(4); } catch(err){} }
+  if (t.id === 'rateIn') paintRate(+t.value);
   if (t.id === 'f_title') $('#e_title').textContent = '';
   if (t.id === 'f_trailer' || t.id === 'f_trailerEs') $('#e_' + t.id.slice(2)).textContent = ''; });
 document.addEventListener('change', async e => { const t = e.target;
@@ -534,10 +579,10 @@ window.addEventListener('appinstalled', () => { installEvt = null; toast('Mis pe
   if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(() => {});
   if (!window.indexedDB || !await DB.open()){ main.innerHTML = `<div class="empty"><h2>No se puede guardar</h2><p>Este navegador no permite guardar datos. Si estás en modo incógnito, abre la app en una pestaña normal.</p></div>`; return; }
   try { const k = await DB.get('meta', 'key'); apiKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
+  try { const k = await DB.get('meta', 'rtskip'); if (k && Array.isArray(k.v)) rtSkip = new Set(k.v.filter(x => typeof x === 'string')); } catch(e){}
   try { const k = await DB.get('meta', 'omdb'); omdbKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
   try { movies = (await DB.all('movies')).map(clean).filter(Boolean); } catch(e){ movies = []; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  try { const w = await DB.get('meta', 'worder'); if (w && ['manual','rtAsc','rtDesc'].includes(w.v)) watchOrder = w.v; } catch(e){}
   loadRtList(); setTimeout(refreshAllExtras, 1500);
   history.replaceState({root:1}, ''); render();
 })();
