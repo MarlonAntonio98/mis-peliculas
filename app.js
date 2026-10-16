@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 11, EXTRAS_V = 5, REGION = 'SV';
+const APP_VERSION = 13, EXTRAS_V = 5, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -104,6 +104,9 @@ async function loadExtras(m){ if (extrasTried.has(m.id) || !m.tmdb || !apiKey ||
     ['genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
     if (!m.posterPath && x.posterPath) m.posterPath = x.posterPath; if (!m.poster && m.posterPath) m.poster = await posterData(m.posterPath);
     await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
+async function refreshAllExtras(){ if (!apiKey || !navigator.onLine) return;
+  for (const m of movies.filter(x => x.tmdb && x.extrasV < EXTRAS_V)){ if (!navigator.onLine) break; await loadExtras(m); await new Promise(r => setTimeout(r, 120));
+    if (['watch','seen'].includes(view.name) && !odrag && !tswipe && !ovState){ clearTimeout(refreshAllExtras.t); refreshAllExtras.t = setTimeout(() => { if (!odrag && !tswipe && !ovState && ['watch','seen'].includes(view.name)) { const y = window.scrollY; render(); window.scrollTo(0, y); } }, 600); } } }
 const needsExtras = m => m.tmdb && (m.extrasV < EXTRAS_V || Date.now() - m.provAt > PROV_MAX_AGE);
 
 /* ---------- Rotten Tomatoes (OMDb) ---------- */
@@ -163,6 +166,7 @@ const kindChips = () => movies.some(m => m.kind === 'tv') ? `<div class="chips">
 function badgeFor(m){
   if (m.status === 'seen') return m.rating ? `<span class="score r${m.rating}">${m.rating}</span>` : '';
   let b = m.rt ? `<span class="score rt"><i class="${rtFresh(m.rt)?'fresh':'rotten'}"></i>${m.rt}</span>` : '';
+  const rk = rtRanks().get(m.id); if (rk) b += `<span class="rank">#${rk}</span>`;
   if (m.digital && daysTo(m.digital.d) > 0) b += `<span class="soon">Digital en ${daysTo(m.digital.d)} d</span>`;
   return b; }
 const card = (m, tag = 'button') => `<${tag} class="poster" ${tag==='button'?`data-open="${esc(m.id)}"`:`data-oid="${esc(m.id)}"`} aria-label="${esc(m.title)}${m.rating&&m.status==='seen'?`, ${m.rating} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.kind==='tv'?'<span class="kind">Serie</span>':''}${badgeFor(m)}</${tag}>`;
@@ -170,12 +174,36 @@ function viewSeen(){ let h = topBar(); const seen = movies.filter(m => m.status 
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Tu primera película</h2><p>Busca una película o serie que hayas visto, dale tu puntuación y empieza tu colección.</p><button class="btn btn-primary" data-act="add">Agregar</button></div>`;
   const l = byKind(seen).sort((a,b) => (b.watched||'').localeCompare(a.watched||'') || (b.ratedAt||b.added) - (a.ratedAt||a.added));
   return h + kindChips() + `<p class="toolbar"><span>${countLabel(l)}</span></p><div class="grid">${l.map(m => card(m)).join('')}</div>`; }
-const watchList = () => movies.filter(m => m.status === 'watch').sort((a,b) => a.order - b.order || b.added - a.added);
+let rtList = null, watchOrder = 'manual';
+const normT = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+let rankCache = {key:'', map:new Map()};
+function rtRanks(){ if (!rtList) return new Map();
+  const key = rtList.updated + ':' + movies.map(m => m.id + m.title + m.year).join('|'); if (rankCache.key === key) return rankCache.map;
+  const map = new Map(), entries = rtList.items.map(e => ({...e, n:normT(e.t)}));
+  for (const m of movies){ if (m.kind !== 'movie') continue; const ns = [normT(m.title), normT(m.original)].filter(Boolean), yr = +m.year || 0, yOk = (e, tol) => !yr || !e.y || Math.abs(e.y - yr) <= tol;
+    let hit = entries.find(e => ns.includes(e.n) && yOk(e, 1));
+    if (!hit) hit = entries.find(e => yOk(e, 0) && ns.some(n => n.length > 3 && e.n.length > 3 && (e.n.includes(n) || n.includes(e.n))));
+    if (hit) map.set(m.id, hit.r); }
+  rankCache = {key, map}; return map; }
+async function loadRtList(){
+  try { const c = await DB.get('meta', 'rtlist'); if (c && Array.isArray(c.items)) rtList = c; } catch(e){}
+  if (!navigator.onLine) return;
+  try { const r = await fetch('rt-top300.json', {cache:'no-cache', credentials:'omit'}); if (!r.ok) return; const d = await r.json();
+    if (!d || !Array.isArray(d.items)) return;
+    const items = d.items.filter(e => e && Number.isInteger(e.r) && typeof e.t === 'string').map(e => ({r:e.r, t:e.t.slice(0,200), y:Number.isInteger(e.y) ? e.y : null})).slice(0, 400);
+    rtList = {k:'rtlist', updated:typeof d.updated === 'string' ? d.updated.slice(0,10) : '', items}; await DB.put('meta', rtList);
+    if (view.name === 'watch' && !odrag && !tswipe) render(); } catch(e){} }
+const watchList = () => { const l = movies.filter(m => m.status === 'watch').sort((a,b) => a.order - b.order || b.added - a.added);
+  if (watchOrder === 'manual' || !rtList) return l;
+  const rk = rtRanks(), dir = watchOrder === 'rtDesc' ? -1 : 1, ranked = l.filter(m => rk.has(m.id)).sort((a,b) => (rk.get(a.id) - rk.get(b.id)) * dir);
+  return [...ranked, ...l.filter(m => !rk.has(m.id))]; };
 function viewWatch(){ let h = topBar(); const all = watchList(); setTimeout(refreshRT, 0);
   if (!all.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas y series que te recomienden o que quieras ver más adelante.</p><button class="btn btn-primary" data-act="add">Agregar</button></div>`;
   if (ordering) return h + `<div class="toolbar"><span>Arrastra los carteles para ordenarlos</span><button class="pill-btn" data-act="orderDone">Listo</button></div><div class="grid ordering" id="orderGrid">${all.map(m => card(m, 'div')).join('')}</div>`;
-  const l = byKind(all);
-  return h + kindChips() + `<div class="toolbar"><span>${l.length} por ver</span>${kindFilter==='all'&&all.length>1?'<button class="link-btn" data-act="orderStart">Ordenar</button>':''}</div><div class="grid">${l.map(m => card(m)).join('')}</div>`; }
+  const l = byKind(all), rk = rtRanks(), inList = all.filter(m => rk.has(m.id)).length;
+  const orderChips = rtList ? `<div class="chips">${[['manual','Mi orden'],['rtAsc','Lista de RT: 1 → 300'],['rtDesc','300 → 1']].map(([k,n]) => `<button class="chip ${watchOrder===k?'on':''}" data-worder="${k}">${n}</button>`).join('')}</div>` : '';
+  const right = watchOrder === 'manual' ? (kindFilter==='all'&&all.length>1 ? '<button class="link-btn" data-act="orderStart">Ordenar</button>' : '') : `<span>${inList} en la lista de RT</span>`;
+  return h + kindChips() + orderChips + `<div class="toolbar"><span>${l.length} por ver</span>${right}</div><div class="grid">${l.map(m => card(m)).join('')}</div>`; }
 function viewStats(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen' && m.watched);
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Aún no hay datos</h2><p>Cuando agregues películas o series vistas, aquí verás tus números.</p></div>`;
   const now = todayKey(), ym = now.slice(0,7), y = now.slice(0,4), month = seen.filter(m => m.watched.startsWith(ym)), year = seen.filter(m => m.watched.startsWith(y)), mins = l => l.reduce((s,m) => s + (m.kind === 'movie' ? m.runtime || 0 : 0), 0);
@@ -210,7 +238,11 @@ function viewWrap(){ const yy = String(wrapYear), l = movies.filter(m => m.statu
   if (fav) h += `<div class="wrap-card"><span>Tu género del año</span><p>${esc(fav[0])}</p><small>${plural(fav[1], 'título', 'títulos')}</small></div>`;
   return h; }
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
-const provRow = (label, l) => l.length ? `<div class="prov-row"><span>${label}</span><div class="prov">${l.map(p => p.logo ? `<img src="${IMG}w92${p.logo}" alt="${esc(p.n)}" title="${esc(p.n)}">` : `<em>${esc(p.n)}</em>`).join('')}</div></div>` : '';
+const PROV_SEARCH = [[/netflix/i, 'https://www.netflix.com/search?q='], [/prime video|amazon/i, 'https://www.primevideo.com/search/?phrase='], [/disney/i, 'https://www.disneyplus.com/search?q='],
+  [/hbo|\bmax\b/i, 'https://play.hbomax.com/search?q='], [/apple tv/i, 'https://tv.apple.com/search?term='], [/paramount/i, 'https://www.paramountplus.com/search/?q='], [/crunchyroll/i, 'https://www.crunchyroll.com/search?q='],
+  [/mubi/i, 'https://mubi.com/search/films?query='], [/tubi/i, 'https://tubitv.com/search/'], [/pluto/i, 'https://pluto.tv/search/details?query='], [/youtube/i, 'https://www.youtube.com/results?search_query='], [/plex/i, 'https://watch.plex.tv/search?q=']];
+const provUrl = (p, m) => { const t = encodeURIComponent(m.title), hit = PROV_SEARCH.find(([re]) => re.test(p.n)); return hit ? hit[1] + t : 'https://www.justwatch.com/sv/buscar?q=' + t; };
+const provRow = (label, l, m) => l.length ? `<div class="prov-row"><span>${label}</span><div class="prov">${l.map(p => `<a href="${esc(provUrl(p, m))}" target="_blank" rel="noopener noreferrer" aria-label="Buscar en ${esc(p.n)}">${p.logo ? `<img src="${IMG}w92${p.logo}" alt="${esc(p.n)}" title="${esc(p.n)}">` : `<em>${esc(p.n)}</em>`}</a>`).join('')}</div></div>` : '';
 function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({seen:viewSeen, watch:viewWatch, stats:viewStats}[tab] || viewSeen)(); }
   if (needsExtras(m) && apiKey) setTimeout(() => loadExtras(m), 0);
   const tv = m.kind === 'tv';
@@ -226,10 +258,10 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
   else h += `<a class="btn btn-ghost btn-sm" href="https://www.youtube.com/results?search_query=${encodeURIComponent(`${m.title} ${m.year} ${m.kind === 'tv' ? 'serie' : ''} tráiler español latino`.replace(/\s+/g, ' ').trim())}" target="_blank" rel="noopener noreferrer">${ic('ext',16)} Buscar tráiler en español latino en YouTube</a>`;
   if (m.trailer) h += `<a class="btn btn-secondary" href="https://www.youtube.com/watch?v=${m.trailer}" target="_blank" rel="noopener noreferrer">${ic('play',18)} Tráiler en inglés</a>`;
   if (m.prov){ const p = m.prov, any = p.flat.length || p.free.length;
-    h += `<h2 class="section">Dónde verla en El Salvador</h2><div class="box">${any ? provRow('Suscripción', p.flat) + provRow('Gratis', p.free) : '<p class="fine">No está incluida en ninguna plataforma de suscripción en El Salvador.</p>'}${p.link && any ? `<a class="prov-link" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">Ver opciones ${ic('ext',14)}</a>` : ''}<p class="prov-src">Datos de JustWatch</p></div>`; }
+    h += `<h2 class="section">Dónde verla en El Salvador</h2><div class="box">${any ? provRow('Suscripción', p.flat, m) + provRow('Gratis', p.free, m) : '<p class="fine">No está incluida en ninguna plataforma de suscripción en El Salvador.</p>'}</div>`; }
   if (!tv){ const dg = m.digital; if (dg){ const n = daysTo(dg.d), where = dg.cc ? ` en ${COUNTRY[dg.cc] || dg.cc}` : '';
     h += `<div class="digital${n > 0 ? ' future' : ''}"><span>${n > 0 ? 'Llega a digital' : 'Estreno en digital'}</span><b>${fmtD(dg.d)}${where}</b>${n > 0 ? `<small>Faltan ${plural(n, 'día', 'días')}</small>` : ''}${dg.fd ? `<em>Antes salió en ${COUNTRY[dg.fcc] || dg.fcc} el ${fmtD(dg.fd)}</em>` : ''}</div>`; } }
-  const info = [['Crítica en Rotten Tomatoes', m.rt], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
+  const rank = rtRanks().get(m.id), info = [['Crítica en Rotten Tomatoes', m.rt], ['300 mejores de RT', rank ? `Puesto ${rank}` : ''], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
   const dirs = m.dirs.length ? m.dirs : m.directors.map(n => ({n, id:null}));
   if (info.length || dirs.length) h += `<div class="box">${dirs.length ? `<div class="row"><span>${tv ? 'Creada por' : 'Dirección'}</span><b class="names">${dirs.map(d => d.id ? `<button class="name" data-person="${d.id}">${esc(d.n)}</button>` : esc(d.n)).join(', ')}</b></div>` : ''}${info.map(([k,v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
   if (m.cast.length) h += `<h2 class="section">Actores principales</h2><div class="box">${m.cast.map(c => c.id ? `<button class="row cast" data-person="${c.id}"><b>${esc(c.n)}</b>${c.c?`<span>${esc(c.c)}</span>`:''}</button>` : `<div class="row cast"><b>${esc(c.n)}</b>${c.c?`<span>${esc(c.c)}</span>`:''}</div>`).join('')}</div>`;
@@ -468,11 +500,12 @@ async function importBk(file){
 document.addEventListener('click', async e => {
   if (ordering && e.target.closest('#orderGrid')) return;
   if (Date.now() - swipedAt < 400) return;
-  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-add],[data-wrap],[data-kind],[data-skind],[data-person],[data-role],[data-fkind]'); if (!t) return;
+  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-add],[data-wrap],[data-kind],[data-worder],[data-skind],[data-person],[data-role],[data-fkind]'); if (!t) return;
   const ds = t.dataset;
   if (ds.tab){ resetToRoot(ds.tab); return; }
   if (ds.open) return go({name:'detail', id:ds.open});
   if (ds.kind){ kindFilter = ds.kind; return render(); }
+  if (ds.worder){ watchOrder = ds.worder; DB.put('meta', {k:'worder', v:watchOrder}).catch(() => {}); render(); window.scrollTo(0,0); return; }
   if (ds.skind){ if (searchKind === ds.skind) return; searchKind = ds.skind; results = null; render(); const q = $('#q'); if (q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); } runSearch(); return; }
   if (ds.person){ return go({name:'person', pid:+ds.person}); }
   if (ds.role){ personRole = ds.role; return render(); }
@@ -504,6 +537,8 @@ window.addEventListener('appinstalled', () => { installEvt = null; toast('Mis pe
   try { const k = await DB.get('meta', 'omdb'); omdbKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
   try { movies = (await DB.all('movies')).map(clean).filter(Boolean); } catch(e){ movies = []; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  try { const w = await DB.get('meta', 'worder'); if (w && ['manual','rtAsc','rtDesc'].includes(w.v)) watchOrder = w.v; } catch(e){}
+  loadRtList(); setTimeout(refreshAllExtras, 1500);
   history.replaceState({root:1}, ''); render();
 })();
 })();
