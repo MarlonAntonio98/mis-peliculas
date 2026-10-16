@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 9, EXTRAS_V = 4, REGION = 'SV';
+const APP_VERSION = 10, EXTRAS_V = 4, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -320,15 +320,15 @@ function compress(file){ return new Promise((res, rej) => { if (file.size > 40e6
 let tswipe = null, swipedAt = 0;
 document.addEventListener('pointerdown', e => { tswipe = null;
   if (!e.isPrimary || !TABS.includes(view.name) || ordering || ovState || odrag) return;
-  if (e.target.closest('.chips, input, textarea, select, #orderGrid, header')) return;
+  if (e.target.closest('.chips, input, textarea, select, #orderGrid, .bar-actions')) return;
   tswipe = {x0:e.clientX, y0:e.clientY, lx:e.clientX, lt:performance.now(), v:0, dx:0, active:false}; }, {passive:true});
 document.addEventListener('pointermove', e => { const s = tswipe; if (!s || !e.isPrimary) return; const dx = e.clientX - s.x0, dy = e.clientY - s.y0;
-  if (!s.active){ if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return; if (Math.abs(dx) < Math.abs(dy) * 1.3){ tswipe = null; return; } s.active = true; s.pane = $('#pane'); if (s.pane) s.pane.style.transition = 'none'; }
+  if (!s.active){ if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return; if (Math.abs(dx) < Math.abs(dy) * 1.15){ tswipe = null; return; } s.active = true; s.pane = $('#pane'); if (s.pane) s.pane.style.transition = 'none'; }
   const t = performance.now(); if (t > s.lt) s.v = s.v * .4 + (e.clientX - s.lx) / (t - s.lt) * .6; s.lx = e.clientX; s.lt = t; s.dx = dx;
   const i = TABS.indexOf(tab), edge = (i === 0 && dx > 0) || (i === TABS.length - 1 && dx < 0), d = edge ? dx * .22 : dx;
   if (s.pane){ s.pane.style.transform = `translateX(${d.toFixed(1)}px)`; s.pane.style.opacity = String(1 - Math.min(.45, Math.abs(d) / 900)); } }, {passive:true});
 function endTabSwipe(cancel){ const s = tswipe; tswipe = null; if (!s || !s.active) return; swipedAt = Date.now();
-  const i = TABS.indexOf(tab), next = !cancel && (s.dx < -70 || (s.v < -.5 && s.dx < -20)) && i < TABS.length - 1 ? i + 1 : !cancel && (s.dx > 70 || (s.v > .5 && s.dx > 20)) && i > 0 ? i - 1 : -1, p = s.pane;
+  const i = TABS.indexOf(tab), next = !cancel && (s.dx < -60 || (s.v < -.35 && s.dx < -18)) && i < TABS.length - 1 ? i + 1 : !cancel && (s.dx > 60 || (s.v > .35 && s.dx > 18)) && i > 0 ? i - 1 : -1, p = s.pane;
   if (!p) return;
   if (next < 0){ p.style.transition = 'transform .32s cubic-bezier(.2,1.1,.3,1), opacity .25s'; p.style.transform = ''; p.style.opacity = ''; return; }
   const dir = next > i ? -1 : 1, W = window.innerWidth;
@@ -468,7 +468,7 @@ async function importBk(file){
 /* ---------- Eventos ---------- */
 document.addEventListener('click', async e => {
   if (ordering && e.target.closest('#orderGrid')) return;
-  if (Date.now() - swipedAt < 400 && e.target.closest('#pane')) return;
+  if (Date.now() - swipedAt < 400) return;
   const t = e.target.closest('[data-act],[data-open],[data-tab],[data-add],[data-wrap],[data-kind],[data-skind],[data-person],[data-role],[data-fkind]'); if (!t) return;
   const ds = t.dataset;
   if (ds.tab){ resetToRoot(ds.tab); return; }
