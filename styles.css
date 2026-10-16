@@ -247,3 +247,6 @@ body{touch-action:pan-y}
 .pick-row b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pick-n{color:var(--faint);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
 .pick-row:active{opacity:.6}
+img{-webkit-touch-callout:none;-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
+.top-thumb img,.menu-head img,.res-thumb img,.d-poster img{pointer-events:none}
+.sheet{-webkit-touch-callout:none}
