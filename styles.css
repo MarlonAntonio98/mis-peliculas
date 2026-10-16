@@ -195,3 +195,6 @@ button.row.cast:active{opacity:.7}
 .ordering .poster.dragging{z-index:20;animation:none;cursor:grabbing;box-shadow:0 18px 40px rgba(0,0,0,.8);transition:none}
 .ordering .poster img{pointer-events:none;-webkit-user-drag:none}
 .digital em{display:block;font-style:normal;font-size:13px;color:var(--muted);margin-top:4px}
+.btn-sm{font-size:14px;font-weight:500;color:var(--muted);padding:10px}
+.share-prev{display:block;width:auto;max-width:100%;max-height:52vh;margin:6px auto 16px;border-radius:14px;border:1px solid var(--line)}
+.pane{touch-action:pan-y;will-change:transform}
