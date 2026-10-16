@@ -213,4 +213,6 @@ body{touch-action:pan-y}
 .imp-bar{height:8px;border-radius:99px;background:var(--field);overflow:hidden;margin:0 0 14px}
 .imp-bar i{display:block;height:100%;width:0;background:var(--gold);border-radius:99px;transition:width .25s}
 .imp-list{max-height:40vh;overflow:auto}
-.note-rt{display:block;width:100%;text-align:left;border:1px solid rgba(240,196,90,.35);background:transparent;color:var(--text);border-radius:14px;padding:12px 14px;font-size:14px;font-weight:500;margin:0 0 14px;cursor:pointer}
+.note-rt{border:1px solid rgba(240,196,90,.35);border-radius:14px;padding:12px 14px;font-size:14px;margin:0 0 14px}
+.note-actions{display:flex;align-items:center;gap:16px;margin-top:10px}
+.synopsis{font-size:15px;line-height:1.6;color:#C9C9CF;margin:0 0 18px}

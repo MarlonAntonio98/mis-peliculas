@@ -4,7 +4,7 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 16, EXTRAS_V = 5, REGION = 'SV';
+const APP_VERSION = 17, EXTRAS_V = 6, REGION = 'SV';
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/', OMDB = 'https://www.omdbapi.com/';
 const RT_MAX_AGE = 7 * 864e5, PROV_MAX_AGE = 7 * 864e5;
 const LATAM = new Set(['MX','AR','CO','CL','PE','VE','EC','GT','SV','CR','PA','UY','PY','BO','DO','HN','NI','PR','CU','US','419']);
@@ -64,7 +64,7 @@ function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return 
     digital:m.digital && DATE_RE.test(m.digital.d) ? {d:m.digital.d, cc:/^[A-Z]{2}$/.test(m.digital.cc || '') ? m.digital.cc : '', fd:DATE_RE.test(m.digital.fd || '') ? m.digital.fd : '', fcc:/^[A-Z]{2}$/.test(m.digital.fcc || '') ? m.digital.fcc : ''} : null,
     prov, provAt:+m.provAt || 0, extrasV:+m.extrasV || 0,
     status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, ratedAt:+m.ratedAt || 0, note:str(m.note, 3000),
-    order:isFinite(+m.order) ? +m.order : 0, pos:m.pos === null || m.pos === undefined || !isFinite(+m.pos) ? null : +m.pos, lastRank:Number.isInteger(+m.lastRank) && +m.lastRank > 0 ? +m.lastRank : null, rtT:str(m.rtT, 200), rtY:Number.isInteger(+m.rtY) && +m.rtY > 0 ? +m.rtY : null, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
+    order:isFinite(+m.order) ? +m.order : 0, pos:m.pos === null || m.pos === undefined || !isFinite(+m.pos) ? null : +m.pos, lastRank:Number.isInteger(+m.lastRank) && +m.lastRank > 0 ? +m.lastRank : null, rtT:str(m.rtT, 200), overview:str(m.overview, 1500), rtY:Number.isInteger(+m.rtY) && +m.rtY > 0 ? +m.rtY : null, added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
 
 /* ---------- TMDB ---------- */
 async function tmdb(path, params = {}, signal){
@@ -89,6 +89,8 @@ function pickDigital(rd){ const all = (rd && rd.results) || [], find = cc => { c
 function pickProv(wp){ const r = wp && wp.results && wp.results[REGION]; if (!r) return {link:'', flat:[], free:[], rent:[], buy:[]};
   const map = l => (l || []).sort((a,b) => (a.display_priority ?? 99) - (b.display_priority ?? 99)).map(p => ({n:p.provider_name, logo:p.logo_path || ''}));
   return {link:r.link || '', flat:map(r.flatrate), free:map([...(r.free || []), ...(r.ads || [])]), rent:map(r.rent), buy:map(r.buy)}; }
+async function overviewEs(kind, id, en){ try { const d = await tmdb(`/${kind}/${id}`, {language:'es-MX'}); if (d.overview && d.overview.trim()) return d.overview.trim().slice(0, 1500); } catch(e){}
+  return String(en || '').trim().slice(0, 1500); }
 async function esTrailer(kind, id){ try { const v = ((await tmdb(`/${kind}/${id}/videos`, {language:'es-MX'})).results) || []; return pickTrailer(v, 'es') || pickTrailer(v, 'es', true); } catch(e){ return ''; } }
 const GENRES_ES = {28:'Acción',12:'Aventura',16:'Animación',35:'Comedia',80:'Crimen',99:'Documental',18:'Drama',10751:'Familia',14:'Fantasía',36:'Historia',27:'Terror',10402:'Música',9648:'Misterio',10749:'Romance',878:'Ciencia ficción',10770:'Película de TV',53:'Suspenso',10752:'Bélica',37:'Western',10759:'Acción y aventura',10762:'Infantil',10763:'Noticias',10764:'Reality',10765:'Ciencia ficción y fantasía',10766:'Telenovela',10767:'Programa de entrevistas',10768:'Guerra y política'};
 const castFrom = cr => ((cr && cr.cast) || []).slice().sort((a,b) => (a.order ?? 99) - (b.order ?? 99)).slice(0, 6).map(c => ({n:c.name || '', c:c.character || (c.roles && c.roles[0] && c.roles[0].character) || '', id:c.id}));
@@ -96,7 +98,7 @@ async function fetchInfo(kind, id){
   const d = await tmdb(`/${kind}/${id}`, {append_to_response:`credits,videos,external_ids,watch/providers${kind === 'movie' ? ',release_dates' : ''}`, include_video_language:'en,es'});
   const vids = (d.videos && d.videos.results) || [];
   const base = {kind, tmdb:d.id, posterPath:d.poster_path || '', genres:(d.genres || []).map(g => GENRES_ES[g.id] || g.name), cast:castFrom(d.credits), imdb:(d.external_ids && d.external_ids.imdb_id) || d.imdb_id || '',
-    trailer:pickTrailer(vids, 'en'), trailerEs:pickTrailer(vids, 'es') || await esTrailer(kind, id), prov:pickProv(d['watch/providers']), provAt:Date.now(), extrasV:EXTRAS_V};
+    trailer:pickTrailer(vids, 'en'), trailerEs:pickTrailer(vids, 'es') || await esTrailer(kind, id), prov:pickProv(d['watch/providers']), provAt:Date.now(), extrasV:EXTRAS_V, overview:await overviewEs(kind, id, d.overview)};
   if (kind === 'movie'){ const dirs = ((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').slice(0,4).map(c => ({n:c.name, id:c.id}));
     return Object.assign(base, {title:d.title || d.original_title || '', original:d.original_title && d.original_title !== d.title ? d.original_title : '', year:(d.release_date || '').slice(0,4), runtime:d.runtime || null, dirs, directors:dirs.map(x => x.n), digital:pickDigital(d.release_dates)}); }
   const dirs = (d.created_by || []).slice(0,4).map(c => ({n:c.name, id:c.id}));
@@ -104,7 +106,7 @@ async function fetchInfo(kind, id){
 async function loadExtras(m){ if (extrasTried.has(m.id) || !m.tmdb || !apiKey || !navigator.onLine) return; extrasTried.add(m.id);
   try { const x = await fetchInfo(m.kind, m.tmdb); const lang = m.extrasV < 5;
     if (lang && x.title){ m.title = x.title; m.original = x.original; if (x.year) m.year = x.year; if (x.posterPath && x.posterPath !== m.posterPath){ m.posterPath = x.posterPath; m.poster = await posterData(x.posterPath) || m.poster; } }
-    ['genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
+    ['overview','genres','cast','imdb','trailer','trailerEs','prov','provAt','extrasV','runtime','seasons','dirs','directors','digital'].forEach(k => { if (x[k] !== undefined && x[k] !== null && !(Array.isArray(x[k]) && !x[k].length && m[k] && m[k].length)) m[k] = x[k]; });
     if (!m.posterPath && x.posterPath) m.posterPath = x.posterPath; if (!m.poster && m.posterPath) m.poster = await posterData(m.posterPath);
     await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
 async function refreshAllExtras(){ if (!apiKey || !navigator.onLine) return;
@@ -197,9 +199,9 @@ async function loadRtList(){
     const items = d.items.filter(e => e && Number.isInteger(e.r) && typeof e.t === 'string').map(e => ({r:e.r, t:e.t.slice(0,200), y:Number.isInteger(e.y) ? e.y : null})).slice(0, 400);
     rtList = {k:'rtlist', updated:typeof d.updated === 'string' ? d.updated.slice(0,10) : '', items}; await DB.put('meta', rtList); syncLastRanks();
     if (view.name === 'watch' && !odrag && !tswipe) render(); } catch(e){} }
-let rtSkip = new Set();
+let rtSkip = new Set(), rtIgnore = new Set();
 const skipKey = e => normT(e.t) + '|' + (e.y || '');
-const missingRT = (all) => { if (!rtList) return []; const have = new Set(rtRanks().values()); return rtList.items.filter(e => !have.has(e.r) && (all || !rtSkip.has(skipKey(e)))); };
+const missingRT = (all) => { if (!rtList) return []; const have = new Set(rtRanks().values()); return rtList.items.filter(e => !have.has(e.r) && !rtIgnore.has(skipKey(e)) && (all || !rtSkip.has(skipKey(e)))); };
 let importing = null;
 async function findTmdb(e){
   const pick = (list) => { const n = normT(e.t), ok = (list || []).filter(r => r && r.id);
@@ -232,7 +234,7 @@ function viewWatch(){ let h = topBar(); const all = watchList(); setTimeout(refr
   const rk = rtRanks();
   if (ordering) return h + `<div class="toolbar"><span>Mueve las que no son de la lista de RT</span><button class="pill-btn" data-act="orderDone">Listo</button></div><div class="grid ordering" id="orderGrid">${all.map(m => card(m, 'div', rk.has(m.id))).join('')}</div>`;
   const free = all.filter(m => !rk.has(m.id)).length, miss = missingRT().length;
-  return h + (miss ? `<button class="note-rt" data-act="importRT">${plural(miss, 'película de la lista de RT no está', 'películas de la lista de RT no están')} en tu app. Agregarlas</button>` : '') + `<div class="toolbar"><span>${all.length} por ver</span>${free ? '<button class="link-btn" data-act="orderStart">Ordenar</button>' : ''}</div><div class="grid">${all.map(m => card(m)).join('')}</div>`; }
+  return h + (miss ? `<div class="note-rt"><span>${miss === 1 ? 'Hay 1 película de la lista de RT que no está' : `Hay ${miss} películas de la lista de RT que no están`} en tu app.</span><div class="note-actions"><button class="pill-btn" data-act="importRT">Agregar</button><button class="link-btn" data-act="ignoreRT">No me interesan</button></div></div>` : '') + `<div class="toolbar"><span>${all.length} por ver</span>${free ? '<button class="link-btn" data-act="orderStart">Ordenar</button>' : ''}</div><div class="grid">${all.map(m => card(m)).join('')}</div>`; }
 function viewStats(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen' && m.watched);
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Aún no hay datos</h2><p>Cuando agregues películas o series vistas, aquí verás tus números.</p></div>`;
   const now = todayKey(), ym = now.slice(0,7), y = now.slice(0,4), month = seen.filter(m => m.watched.startsWith(ym)), year = seen.filter(m => m.watched.startsWith(y)), mins = l => l.reduce((s,m) => s + (m.kind === 'movie' ? m.runtime || 0 : 0), 0);
@@ -277,6 +279,7 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
   const tv = m.kind === 'tv';
   let h = `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><div class="bar-actions"><button class="icon-btn" data-act="editInfo" aria-label="Editar datos">${ic('edit')}</button></div></header>`;
   h += `<div class="d-top"><div class="d-poster">${posterImg(m)}</div><div>${tv?'<p class="d-kind">Serie</p>':''}<h1 class="d-title">${esc(m.title)}</h1><p class="d-meta">${esc([m.year, tv ? (m.seasons ? plural(m.seasons, 'temporada', 'temporadas') : '') : (m.runtime ? hours(m.runtime) : '')].filter(Boolean).join(', '))}</p>${m.original?`<p class="d-meta">${esc(m.original)}</p>`:''}</div></div>`;
+  if (m.overview) h += `<p class="synopsis">${esc(m.overview)}</p>`;
   if (m.status === 'seen'){
     h += m.rating ? `<div class="d-score"><b class="r${rc(m.rating)}">${fr(m.rating)}</b><span>de 10, ${word(m.rating).toLowerCase()}</span></div>` : '';
     h += `<p class="d-sub">${m.watched ? `${tv ? 'La terminaste' : 'La viste'} el ${fmtD(m.watched)}.` : ''}</p>`;
@@ -346,7 +349,7 @@ function viewSettings(){ const standalone = window.matchMedia('(display-mode: st
   return `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><h1 class="title title-sm">Ajustes</h1><span class="spacer"></span></header>
   <h2 class="section">Clave de TMDB</h2><div class="box"><label class="field"><span>Clave de API o token de lectura</span><input id="k_key" type="password" value="${esc(apiKey)}" placeholder="Pega aquí tu clave" ${NO_SPELL}><em class="err" id="e_key"></em><small>Se guarda solo en este celular. La consigues gratis en themoviedb.org, en tu perfil → Ajustes → API.</small></label><button class="btn btn-primary" data-act="saveKey">Guardar y probar</button></div>
   <h2 class="section">Rotten Tomatoes</h2><div class="box"><label class="field"><span>Clave de OMDb</span><input id="o_key" type="password" value="${esc(omdbKey)}" placeholder="Opcional" ${NO_SPELL}><em class="err" id="e_okey"></em><small>Con esta clave, en «Por ver» aparece el porcentaje de la crítica en Rotten Tomatoes. La consigues gratis en omdbapi.com.</small></label><button class="btn btn-primary" data-act="saveOmdb">Guardar y probar</button></div>
-  ${rtList ? `<h2 class="section">Lista de las 300 mejores de RT</h2><div class="box">${missingRT().length ? `<button class="set-row" data-act="importRT"><span>Agregar las que me faltan<small>${plural(missingRT().length, 'película de la lista no está', 'películas de la lista no están')} en tu app</small></span><span class="chev">${ic('plus',18)}</span></button>` : '<p class="fine">Ya tienes todas las películas de la lista.</p>'}${missingRT(true).length > missingRT().length ? `<button class="set-row" data-act="importRetry"><span>Reintentar las que no se encontraron<small>${plural(missingRT(true).length - missingRT().length, 'película', 'películas')}</small></span><span class="chev">${ic('chev',18)}</span></button>` : ''}<p class="fine">Lista actualizada el ${fmtD(rtList.updated)}.</p></div>` : ''}
+  ${rtList ? `<h2 class="section">Lista de las 300 mejores de RT</h2><div class="box">${missingRT().length ? `<button class="set-row" data-act="importRT"><span>Agregar las que me faltan<small>${plural(missingRT().length, 'película de la lista no está', 'películas de la lista no están')} en tu app</small></span><span class="chev">${ic('plus',18)}</span></button>` : '<p class="fine">Ya tienes todas las películas de la lista.</p>'}${missingRT(true).length > missingRT().length ? `<button class="set-row" data-act="importRetry"><span>Reintentar las que no se encontraron<small>${plural(missingRT(true).length - missingRT().length, 'película', 'películas')}</small></span><span class="chev">${ic('chev',18)}</span></button>` : ''}${rtIgnore.size ? `<button class="set-row" data-act="unignoreRT"><span>Volver a mostrar las que ignoraste<small>${plural(rtIgnore.size, 'película ignorada', 'películas ignoradas')}</small></span><span class="chev">${ic('chev',18)}</span></button>` : ''}<p class="fine">Lista actualizada el ${fmtD(rtList.updated)}.</p></div>` : ''}
   <h2 class="section">Instalación</h2><div class="box">${standalone?'<p class="fine">Ya estás usando la app instalada.</p>':installEvt?`<button class="set-row" data-act="install"><span>Instalar Mis películas en el celular<small>Queda como una app con su propio ícono</small></span><span class="chev">${ic('down',18)}</span></button>`:'<p class="fine">Chrome todavía no ofrece instalarla. Abre la app en Chrome con internet, espera unos segundos y vuelve a entrar aquí.</p>'}</div>
   <h2 class="section">Copia de seguridad</h2><div class="box">
   <button class="set-row" data-act="exportBk"><span>Descargar copia<small>Tus películas, series, puntuaciones y carteles</small></span><span class="chev">${ic('down',18)}</span></button>
@@ -506,6 +509,8 @@ const A = {
   shareRating(){ const m = curM(); if (m) offerShare(m, false); },
   doShare(){ doShare(); },
   async delete(){ const m = curM(); if (!m) return; if (!await confirmBox(`¿Eliminar ${m.title}?`, 'Se borra de tu colección junto con tu puntuación y comentario.', 'Eliminar')) return;
+    const rank = rtRanks().get(m.id), entry = rank && rtList ? rtList.items.find(e => e.r === rank) : null;
+    if (entry){ rtIgnore.add(skipKey(entry)); DB.put('meta', {k:'rtignore', v:[...rtIgnore]}).catch(() => {}); }
     await DB.del('movies', m.id); movies = movies.filter(x => x.id !== m.id); toast('Eliminada'); back(); },
   sheetOk(){ resolveSheet(true); }, sheetNo(){ resolveSheet(null); },
   pickSeen(){ resolveSheet('seen'); }, pickWatch(){ resolveSheet('watch'); },
@@ -520,7 +525,11 @@ const A = {
     const old = omdbKey; omdbKey = k;
     try { await omdb('tt0111161'); await DB.put('meta', {k:'omdb', v:k}); movies.forEach(m => { m.rtAt = 0; }); toast('Clave guardada. Las calificaciones aparecerán en Por ver.'); }
     catch(err){ omdbKey = old; e.textContent = err.badkey ? 'OMDb no aceptó esa clave. Revisa que la activaste desde el correo.' : 'No se pudo comprobar. Revisa tu conexión a internet.'; } },
-  importRT(){ importRT(false); }, importRetry(){ importRT(true); },
+  importRT(){ importRT(false); },
+  async ignoreRT(){ const l = missingRT(); if (!l.length) return;
+    if (!await confirmBox(l.length === 1 ? '¿Ignorar esta película?' : `¿Ignorar estas ${l.length} películas?`, 'No se agregarán ni volverán a aparecer en el aviso, aunque cambien de puesto. Si Rotten Tomatoes agrega películas nuevas a la lista, sí te avisaré.', 'Ignorar')) return;
+    l.forEach(e => rtIgnore.add(skipKey(e))); await DB.put('meta', {k:'rtignore', v:[...rtIgnore]}).catch(() => {}); render(); toast('Listo, no volverán a aparecer'); },
+  async unignoreRT(){ rtIgnore = new Set(); await DB.put('meta', {k:'rtignore', v:[]}).catch(() => {}); render(); toast('Las ignoradas vuelven a contar'); }, importRetry(){ importRT(true); },
   importStop(){ if (importing){ importing.stop = true; const b = $('#impBtn'); if (b){ b.textContent = 'Deteniendo…'; b.disabled = true; } } },
   async install(){ if (!installEvt) return; const e = installEvt; installEvt = null; try { await e.prompt(); await e.userChoice; } catch(err){} render(); },
   async exportBk(){ const data = {app:'mis-peliculas', v:2, created:new Date().toISOString(), movies};
@@ -579,6 +588,7 @@ window.addEventListener('appinstalled', () => { installEvt = null; toast('Mis pe
   if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(() => {});
   if (!window.indexedDB || !await DB.open()){ main.innerHTML = `<div class="empty"><h2>No se puede guardar</h2><p>Este navegador no permite guardar datos. Si estás en modo incógnito, abre la app en una pestaña normal.</p></div>`; return; }
   try { const k = await DB.get('meta', 'key'); apiKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
+  try { const k = await DB.get('meta', 'rtignore'); if (k && Array.isArray(k.v)) rtIgnore = new Set(k.v.filter(x => typeof x === 'string')); } catch(e){}
   try { const k = await DB.get('meta', 'rtskip'); if (k && Array.isArray(k.v)) rtSkip = new Set(k.v.filter(x => typeof x === 'string')); } catch(e){}
   try { const k = await DB.get('meta', 'omdb'); omdbKey = k && typeof k.v === 'string' ? k.v : ''; } catch(e){}
   try { movies = (await DB.all('movies')).map(clean).filter(Boolean); } catch(e){ movies = []; }
