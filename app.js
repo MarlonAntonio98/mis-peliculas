@@ -4,9 +4,8 @@ if (window.top !== window.self) { document.documentElement.classList.add('framed
 
 const $ = s => document.querySelector(s);
 const main = $('#main'), ov = $('#overlay');
-const APP_VERSION = 1;
+const APP_VERSION = 2;
 const API = 'https://api.themoviedb.org/3', IMG = 'https://image.tmdb.org/t/p/';
-const TAGS = ['Lloré', 'Me dio miedo', 'Para volver a ver', 'Obra maestra', 'Sobrevalorada', 'Me hizo reír', 'Me dejó pensando'];
 const WORDS = ['', 'Horrible', 'Muy mala', 'Mala', 'Floja', 'Regular', 'Aceptable', 'Buena', 'Muy buena', 'Excelente', 'Obra maestra'];
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const I = {plus:'<path d="M12 5v14M5 12h14"/>',back:'<path d="m15 6-6 6 6 6"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',edit:'<path d="M4 20h4L19 9l-4-4L4 16v4z"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',chev:'<path d="m9 6 6 6-6 6"/>',down:'<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',up:'<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',film:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M16 3v18M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'};
@@ -32,7 +31,7 @@ const DB = { db:null,
   clear(s){ return this.req(s,'readwrite',o=>o.clear()); } };
 
 /* ---------- Estado ---------- */
-let movies = [], apiKey = '', view = {name:'seen'}, hist = [], tab = 'seen', sort = 'recent', tagFilter = '', installEvt = null, sheetRes = null, draft = null, query = '', results = null, searching = false, searchCtl = null, searchTimer = 0, wrapYear = new Date().getFullYear();
+let movies = [], apiKey = '', view = {name:'seen'}, hist = [], tab = 'seen', sort = 'recent', installEvt = null, sheetRes = null, draft = null, query = '', results = null, searching = false, searchCtl = null, searchTimer = 0, wrapYear = new Date().getFullYear();
 
 /* ---------- Validación ---------- */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/, IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, ID_RE = /^[a-z0-9]{6,40}$/, PATH_RE = /^\/[A-Za-z0-9._-]+\.(jpg|jpeg|png)$/;
@@ -42,8 +41,8 @@ function clean(m){ if (!m || typeof m !== 'object' || !ID_RE.test(m.id)) return 
   const rating = Number.isInteger(+m.rating) && +m.rating >= 1 && +m.rating <= 10 ? +m.rating : null;
   return {id:m.id, tmdb:Number.isInteger(+m.tmdb) && +m.tmdb > 0 ? +m.tmdb : null, title, original:str(m.original,200), year:/^\d{4}$/.test(String(m.year)) ? String(m.year) : '',
     poster:typeof m.poster === 'string' && IMG_RE.test(m.poster) ? m.poster : null, posterPath:typeof m.posterPath === 'string' && PATH_RE.test(m.posterPath) ? m.posterPath : '',
-    runtime:Number.isInteger(+m.runtime) && +m.runtime > 0 && +m.runtime < 1000 ? +m.runtime : null, genres:strList(m.genres, 8), directors:strList(m.directors, 4),
-    status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, note:str(m.note, 3000), tags:strList(m.tags, 12),
+    runtime:Number.isInteger(+m.runtime) && +m.runtime > 0 && +m.runtime < 1000 ? +m.runtime : null, genres:strList(m.genres, 8), directors:strList(m.directors, 4), cast:Array.isArray(m.cast) ? m.cast.filter(c => c && typeof c.n === 'string' && c.n.trim()).map(c => ({n:c.n.trim().slice(0,80), c:str(c.c, 80).trim()})).slice(0, 6) : [], castLoaded:!!m.castLoaded,
+    status:m.status === 'watch' ? 'watch' : 'seen', watched:DATE_RE.test(m.watched) ? m.watched : null, rating, note:str(m.note, 3000),
     added:+m.added || Date.now(), updated:+m.updated || Date.now()}; }
 
 /* ---------- TMDB ---------- */
@@ -62,7 +61,11 @@ async function fromTmdb(id){
   const d = await tmdb(`/movie/${id}`, {append_to_response:'credits'});
   const poster = await posterData(d.poster_path);
   return {tmdb:d.id, title:d.title || d.original_title || '', original:d.original_title && d.original_title !== d.title ? d.original_title : '', year:(d.release_date || '').slice(0,4),
-    posterPath:d.poster_path || '', poster, runtime:d.runtime || null, genres:(d.genres || []).map(g => g.name), directors:((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').map(c => c.name).slice(0,4)}; }
+    posterPath:d.poster_path || '', poster, runtime:d.runtime || null, genres:(d.genres || []).map(g => g.name), directors:((d.credits && d.credits.crew) || []).filter(c => c.job === 'Director').map(c => c.name).slice(0,4), cast:castFrom(d.credits), castLoaded:true}; }
+const castFrom = cr => ((cr && cr.cast) || []).slice().sort((a,b) => (a.order ?? 99) - (b.order ?? 99)).slice(0, 6).map(c => ({n:c.name || '', c:c.character || ''}));
+const castTried = new Set();
+async function loadCast(m){ if (castTried.has(m.id) || !m.tmdb || !apiKey || m.castLoaded) return; castTried.add(m.id);
+  try { const cr = await tmdb(`/movie/${m.tmdb}/credits`); m.cast = castFrom(cr); m.castLoaded = true; await saveM(m); if (view.name === 'detail' && view.id === m.id) render(); } catch(e){} }
 
 /* ---------- UI general ---------- */
 function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600); }
@@ -71,11 +74,10 @@ function closeOverlay(){ ov.hidden = true; ov.innerHTML = ''; ov.className = '';
 function resolveSheet(v){ closeOverlay(); if (sheetRes){ const r = sheetRes; sheetRes = null; r(v); } }
 function confirmBox(title, text, ok){ return new Promise(res => { sheetRes = v => res(!!v); openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(title)}</h2><p>${esc(text)}</p><button class="btn btn-danger" data-act="sheetOk">${esc(ok)}</button><button class="btn btn-ghost" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
 function chooseBox(m){ return new Promise(res => { sheetRes = res; openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(m.title)}</h2><p>${esc([m.year, m.directors.join(', ')].filter(Boolean).join(', '))}</p><div class="choose"><button class="btn btn-primary" data-act="pickSeen">Ya la vi</button><button class="btn btn-secondary" data-act="pickWatch">La quiero ver</button></div><button class="btn btn-ghost mt" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
-function rateBox(m){ return new Promise(res => { sheetRes = res; const r = m.rating || 7, tags = new Set(m.tags || []); const all = [...new Set([...TAGS, ...(m.tags || [])])];
+function rateBox(m){ return new Promise(res => { sheetRes = res; const r = m.rating || 7;
   openOverlay(`<div class="sheet" role="dialog" aria-modal="true"><h2>${esc(m.title)}</h2><div class="rate"><p class="rate-num r${r}" id="rateNum">${r}</p><p class="rate-word" id="rateWord">${WORDS[r]}</p><input type="range" id="rateIn" min="1" max="10" step="1" value="${r}" aria-label="Puntuación del 1 al 10"><div class="ticks">${[1,2,3,4,5,6,7,8,9,10].map(n => `<span>${n}</span>`).join('')}</div></div>
   <label class="field"><span>La viste el</span><input type="date" id="rateDate" value="${m.watched || todayKey()}" max="${todayKey()}"></label>
   <label class="field"><span>Comentario</span><textarea id="rateNote" rows="3" maxlength="3000" placeholder="Lo que te gustó, una frase que te quedó…" ${NO_SPELL}>${esc(m.note || '')}</textarea></label>
-  <div class="field"><span>Etiquetas</span><div class="tag-pick" id="tagPick">${all.map(t => `<button type="button" class="${tags.has(t)?'on':''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div><input id="tagNew" class="mt" placeholder="Agregar otra etiqueta" maxlength="40" ${NO_SPELL}></div>
   <button class="btn btn-primary" data-act="rateSave">Guardar</button><button class="btn btn-ghost" data-act="sheetNo">Cancelar</button></div>`, 'dim'); }); }
 function go(v){ hist.push(view); view = v; render(); window.scrollTo(0,0); }
 function back(){ view = hist.pop() || {name:tab}; render(); window.scrollTo(0,0); }
@@ -89,11 +91,8 @@ function topBar(){ return `<header class="bar"><h1 class="title">Mis películas<
 const card = m => `<button class="poster" data-open="${esc(m.id)}" aria-label="${esc(m.title)}${m.rating?`, ${m.rating} de 10`:''}">${posterImg(m) || `<span class="ph">${esc(m.title)}</span>`}${m.status==='seen'&&m.rating?`<span class="score r${m.rating}">${m.rating}</span>`:''}</button>`;
 function viewSeen(){ let h = topBar(); const seen = movies.filter(m => m.status === 'seen');
   if (!seen.length) return h + `<div class="empty"><div class="empty-mark">${ic('film',30)}</div><h2>Tu primera película</h2><p>Busca una película que hayas visto, dale tu puntuación y empieza tu colección.</p><button class="btn btn-primary" data-act="add">Agregar película</button></div>`;
-  const tags = [...new Set(seen.flatMap(m => m.tags))]; if (tagFilter && !tags.includes(tagFilter)) tagFilter = '';
-  let l = tagFilter ? seen.filter(m => m.tags.includes(tagFilter)) : seen;
-  l = [...l].sort(sort === 'best' ? (a,b) => (b.rating||0) - (a.rating||0) || (b.watched||'').localeCompare(a.watched||'') : (a,b) => (b.watched||'').localeCompare(a.watched||'') || b.added - a.added);
+  const l = [...seen].sort(sort === 'best' ? (a,b) => (b.rating||0) - (a.rating||0) || (b.watched||'').localeCompare(a.watched||'') : (a,b) => (b.watched||'').localeCompare(a.watched||'') || b.added - a.added);
   h += `<div class="toolbar"><span>${seen.length} película${seen.length>1?'s':''}</span><div class="chips">${[['recent','Recientes'],['best','Mejor puntuadas']].map(([k,n]) => `<button class="chip ${sort===k?'on':''}" data-sort="${k}">${n}</button>`).join('')}</div></div>`;
-  if (tags.length) h += `<div class="chips">${['',...tags].map(t => `<button class="chip ${tagFilter===t?'on':''}" data-tagf="${esc(t)}">${t?esc(t):'Todas'}</button>`).join('')}</div>`;
   return h + `<div class="grid">${l.map(card).join('')}</div>`; }
 function viewWatch(){ let h = topBar(); const l = movies.filter(m => m.status === 'watch').sort((a,b) => b.added - a.added);
   if (!l.length) return h + `<div class="empty"><div class="empty-mark">${ic('plus',30)}</div><h2>Nada pendiente</h2><p>Guarda aquí las películas que te recomienden o que quieras ver más adelante.</p><button class="btn btn-primary" data-act="add">Agregar película</button></div>`;
@@ -136,12 +135,13 @@ function viewDetail(){ const m = curM(); if (!m){ view = {name:tab}; return ({se
   if (m.status === 'seen'){
     h += m.rating ? `<div class="d-score"><b class="r${m.rating}">${m.rating}</b><span>de 10, ${WORDS[m.rating].toLowerCase()}</span></div>` : '';
     h += `<p class="d-sub">${m.watched ? `La viste el ${fmtD(m.watched)}.` : ''}</p>`;
-    if (m.tags.length) h += `<div class="tags">${m.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>`;
     if (m.note) h += `<div class="box"><p class="quote">${esc(m.note)}</p></div>`;
     h += `<button class="btn btn-secondary" data-act="rate">Cambiar puntuación o comentario</button>`;
   } else h += `<button class="btn btn-primary" data-act="markSeen">Ya la vi</button>`;
   const info = [['Dirección', m.directors.join(', ')], ['Géneros', m.genres.join(', ')]].filter(x => x[1]);
   if (info.length) h += `<div class="box">${info.map(([k,v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
+  if (m.cast.length) h += `<h2 class="section">Actores principales</h2><div class="box">${m.cast.map(c => `<div class="row cast"><b>${esc(c.n)}</b>${c.c?`<span>${esc(c.c)}</span>`:''}</div>`).join('')}</div>`;
+  else if (m.tmdb && !m.castLoaded && apiKey) setTimeout(() => loadCast(m), 0);
   return h + `<button class="btn btn-danger-text mt" data-act="delete">Eliminar</button>`; }
 function viewAdd(){ let h = `<header class="bar"><button class="icon-btn" data-act="back" aria-label="Volver">${ic('back')}</button><h1 class="title title-sm">Agregar película</h1><span class="spacer"></span></header>`;
   if (!apiKey) return h + `<div class="hint">Para buscar películas con su cartel y sus datos, agrega tu clave de TMDB en Ajustes.<button class="btn btn-primary" data-act="settings">Ir a Ajustes</button><button class="btn btn-secondary" data-act="manual">Agregar a mano</button></div>`;
@@ -159,6 +159,7 @@ function viewForm(){ const d = draft;
   <label class="field"><span>Título</span><input id="f_title" value="${esc(d.title)}" maxlength="200" ${NO_SPELL}><em class="err" id="e_title"></em></label>
   <div class="two"><label class="field"><span>Año</span><input id="f_year" inputmode="numeric" maxlength="4" value="${esc(d.year)}" placeholder="2024" ${NO_SPELL}></label><label class="field"><span>Duración (minutos)</span><input id="f_runtime" inputmode="numeric" value="${d.runtime||''}" placeholder="120" ${NO_SPELL}></label></div>
   <label class="field"><span>Dirección</span><input id="f_dir" value="${esc(d.directors.join(', '))}" ${NO_SPELL}></label>
+  <label class="field"><span>Actores principales</span><input id="f_cast" value="${esc(d.cast.map(c => c.n).join(', '))}" ${NO_SPELL}><small>Sepáralos con comas.</small></label>
   <label class="field"><span>Géneros</span><input id="f_genres" value="${esc(d.genres.join(', '))}" placeholder="Drama, Comedia" ${NO_SPELL}><small>Sepáralos con comas.</small></label>
   <div class="field"><span>Cartel</span>${photoSlot()}</div>`; }
 function viewSettings(){ const standalone = window.matchMedia('(display-mode: standalone)').matches;
@@ -186,12 +187,11 @@ function paintResults(){ const r = $('#results'); if (r) r.innerHTML = resultsHT
 async function addFlow(info){
   if (info.tmdb){ const ex = movies.find(m => m.tmdb === info.tmdb); if (ex){ toast('Ya está en tu colección'); view = {name:'detail', id:ex.id}; hist = [{name:tab}]; render(); return; } }
   const choice = await chooseBox(info); if (!choice) return;
-  const m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], tags:[]}, info, {status:choice}));
+  const m = clean(Object.assign({id:uid(), added:Date.now(), genres:[], directors:[], cast:[]}, info, {status:choice}));
   if (choice === 'seen'){ const r = await rateBox(m); if (!r) return; Object.assign(m, r); }
   await saveM(m); tab = choice === 'seen' ? 'seen' : 'watch'; hist = [{name:tab}]; view = {name:'detail', id:m.id}; query = ''; results = null; render(); window.scrollTo(0,0);
   toast(choice === 'seen' ? 'Agregada a tus vistas' : 'Agregada a por ver'); }
-function readRate(){ const tags = [...document.querySelectorAll('#tagPick .on')].map(b => b.dataset.tag); const nt = $('#tagNew').value.trim(); if (nt && !tags.includes(nt)) tags.push(nt);
-  const d = $('#rateDate').value; return {rating:+$('#rateIn').value, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim(), tags}; }
+function readRate(){ const d = $('#rateDate').value; return {rating:+$('#rateIn').value, watched:/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey(), note:$('#rateNote').value.trim()}; }
 function compress(file){ return new Promise((res, rej) => { if (file.size > 40e6) return rej(); const url = URL.createObjectURL(file), img = new Image();
   img.onload = () => { const w = Math.min(500, img.width), s = w / img.width, c = document.createElement('canvas'); c.width = Math.round(img.width*s); c.height = Math.round(img.height*s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .82)); };
   img.onerror = () => { URL.revokeObjectURL(url); rej(); }; img.src = url; }); }
@@ -200,12 +200,12 @@ const A = {
   settings(){ go({name:'settings'}); },
   add(){ query = ''; results = null; go({name:'add'}); setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60); },
   back(){ back(); },
-  manual(){ draft = {_new:true, title:query.trim(), year:'', runtime:null, directors:[], genres:[], poster:null, posterPath:''}; go({name:'form'}); },
-  editInfo(){ const m = curM(); if (!m) return; draft = {_new:false, id:m.id, title:m.title, year:m.year, runtime:m.runtime, directors:[...m.directors], genres:[...m.genres], poster:m.poster, posterPath:m.posterPath}; go({name:'form'}); },
+  manual(){ draft = {_new:true, title:query.trim(), year:'', runtime:null, directors:[], genres:[], cast:[], poster:null, posterPath:''}; go({name:'form'}); },
+  editInfo(){ const m = curM(); if (!m) return; draft = {_new:false, id:m.id, title:m.title, year:m.year, runtime:m.runtime, directors:[...m.directors], genres:[...m.genres], cast:m.cast.map(c => ({...c})), poster:m.poster, posterPath:m.posterPath}; go({name:'form'}); },
   rmPoster(){ draft.poster = null; draft.posterPath = ''; $('#photoSlot').outerHTML = photoSlot(); },
   async saveForm(){ const title = $('#f_title').value.trim(); if (!title){ $('#e_title').textContent = 'Escribe el título.'; $('#f_title').focus(); return; }
     const split = v => v.split(',').map(x => x.trim()).filter(Boolean);
-    const info = {title, year:$('#f_year').value.trim(), runtime:parseInt($('#f_runtime').value, 10) || null, directors:split($('#f_dir').value), genres:split($('#f_genres').value), poster:draft.poster};
+    const info = {title, year:$('#f_year').value.trim(), runtime:parseInt($('#f_runtime').value, 10) || null, directors:split($('#f_dir').value), genres:split($('#f_genres').value), cast:split($('#f_cast').value).map(n => ({n, c:(draft.cast.find(c => c.n === n) || {}).c || ''})), castLoaded:true, poster:draft.poster};
     if (draft._new){ draft = null; hist.pop(); view = {name:'add'}; await addFlow(Object.assign({tmdb:null, original:'', posterPath:''}, info)); if (view.name === 'add') render(); return; }
     const m = curMById(draft.id); if (!m) return; Object.assign(m, clean(Object.assign({}, m, info, {posterPath:draft.posterPath}))); draft = null;
     await saveM(m); toast('Guardado'); back(); },
@@ -237,14 +237,12 @@ async function importBk(file){
 
 /* ---------- Eventos ---------- */
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-sort],[data-tagf],[data-tmdb],[data-tag],[data-wrap]'); if (!t) return;
+  const t = e.target.closest('[data-act],[data-open],[data-tab],[data-sort],[data-tmdb],[data-wrap]'); if (!t) return;
   const ds = t.dataset;
   if (ds.tab){ tab = ds.tab; view = {name:tab}; hist = []; render(); window.scrollTo(0,0); return; }
   if (ds.open) return go({name:'detail', id:ds.open});
   if (ds.sort){ sort = ds.sort; return render(); }
-  if (ds.tagf !== undefined){ tagFilter = ds.tagf; return render(); }
   if (ds.wrap){ wrapYear = +ds.wrap; return go({name:'wrap'}); }
-  if (ds.tag !== undefined){ t.classList.toggle('on'); return; }
   if (ds.tmdb){ if (t.disabled) return; t.disabled = true; toast('Cargando datos…');
     try { const info = await fromTmdb(+ds.tmdb); await addFlow(info); } catch(err){ toast(err.badkey ? 'Tu clave de TMDB no funciona.' : 'No se pudieron cargar los datos. Revisa tu conexión.'); }
     t.disabled = false; return; }
@@ -257,8 +255,7 @@ document.addEventListener('input', e => { const t = e.target;
 document.addEventListener('change', async e => { const t = e.target;
   if (t.id === 'f_poster'){ const f = t.files && t.files[0]; if (!f || !draft) return; try { draft.poster = await compress(f); draft.posterPath = ''; $('#photoSlot').outerHTML = photoSlot(); } catch(err){ toast('No se pudo cargar la imagen.'); } }
   if (t.id === 'f_import'){ const f = t.files && t.files[0]; t.value = ''; if (f) importBk(f); } });
-document.addEventListener('keydown', e => { if (!ov.hidden && e.key === 'Escape') resolveSheet(null); if (e.key === 'Enter' && e.target.id === 'tagNew'){ e.preventDefault(); const v = e.target.value.trim(); if (!v) return;
-  const pick = $('#tagPick'), ex = [...pick.querySelectorAll('button')].find(b => b.dataset.tag === v); if (ex) ex.classList.add('on'); else { const b = document.createElement('button'); b.type = 'button'; b.className = 'on'; b.dataset.tag = v; b.textContent = v; pick.appendChild(b); } e.target.value = ''; } });
+document.addEventListener('keydown', e => { if (!ov.hidden && e.key === 'Escape') resolveSheet(null); });
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (['seen','watch','stats','settings'].includes(view.name)) render(); });
 window.addEventListener('appinstalled', () => { installEvt = null; toast('Mis películas instalada'); if (['seen','watch','stats','settings'].includes(view.name)) render(); });
 

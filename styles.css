@@ -151,3 +151,5 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .r1{color:#8E8E96}.rb1{background:#8E8E96}.r2{color:#99948F}.rb2{background:#99948F}.r3{color:#A49A89}.rb3{background:#A49A89}.r4{color:#AFA082}.rb4{background:#AFA082}.r5{color:#BAA67B}.rb5{background:#BAA67B}.r6{color:#C4AC75}.rb6{background:#C4AC75}.r7{color:#CFB26E}.rb7{background:#CFB26E}.r8{color:#DAB867}.rb8{background:#DAB867}.r9{color:#E5BE61}.rb9{background:#E5BE61}.r10{color:#F0C45A}.rb10{background:#F0C45A}
 .toolbar .chips{margin:0;padding:0}
+.row.cast b{text-align:left;font-weight:500}
+.row.cast span{color:var(--muted);font-size:14px;text-align:right}
