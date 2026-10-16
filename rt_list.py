@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Descarga la lista "300 Best Movies of All Time" de Rotten Tomatoes y la guarda en rt-top300.json."""
+import html, json, re, sys, urllib.request
+from datetime import date
+
+URL = 'https://editorial.rottentomatoes.com/guide/best-movies-of-all-time/'
+req = urllib.request.Request(URL, headers={'User-Agent': 'Mozilla/5.0 (personal movie app)'})
+page = urllib.request.urlopen(req, timeout=60).read().decode('utf-8', 'ignore')
+
+items = []
+for rank, body in re.findall(r'<td[^>]*>\s*(\d+)\.\s*</td>(.*?)</tr>', page, re.S):
+    t = re.search(r'class="meta-title"[^>]*href="https://www\.rottentomatoes\.com/m/([^"]+)"[^>]*>(.*?)</a>', body, re.S)
+    y = re.search(r'class="meta-year"[^>]*>\s*\((\d{4})\)', body)
+    if not t:
+        continue
+    items.append({'r': int(rank), 't': html.unescape(re.sub(r'<[^>]+>', '', t.group(2))).strip(), 'y': int(y.group(1)) if y else None, 's': t.group(1)})
+
+items.sort(key=lambda x: x['r'])
+if len(items) < 250:
+    sys.exit(f'Solo se encontraron {len(items)} películas; no se actualiza el archivo.')
+
+out = {'source': URL, 'updated': date.today().isoformat(), 'items': items}
+try:
+    old = json.load(open('rt-top300.json', encoding='utf-8'))
+    if old.get('items') == items:
+        print('La lista no cambió.')
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+json.dump(out, open('rt-top300.json', 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+print(f'Lista actualizada: {len(items)} películas.')
