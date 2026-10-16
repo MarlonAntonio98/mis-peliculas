@@ -220,3 +220,30 @@ body{touch-action:pan-y}
 .syn-btn svg{transition:transform .2s}
 .syn-btn.open svg{transform:rotate(90deg)}
 .synopsis[hidden]{display:none}
+.bell{position:relative}
+.dot-n{position:absolute;top:4px;right:3px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--gold);color:#000;font-size:10px;font-weight:800;display:grid;place-items:center;line-height:1}
+.alert-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;padding:10px 0;text-align:left;cursor:pointer}
+.alert-row:last-child{border-bottom:0}
+.alert-row .al-main{min-width:0;display:flex;flex-direction:column}
+.alert-row b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert-row small{color:var(--muted);font-size:13px}
+.alert-row em{font-style:normal;font-size:13px;color:var(--muted);white-space:nowrap}
+.alert-row.new em{color:var(--gold);font-weight:600}
+.notif{margin-top:22px}
+.menu-head{display:grid;grid-template-columns:46px minmax(0,1fr);gap:12px;align-items:center;margin:0 0 10px}
+.menu-head .top-thumb{width:46px}
+.menu-head h2{font-size:17px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu-head p{margin:2px 0 0;font-size:13px}
+.menu-item{display:block;width:100%;border:0;border-top:1px solid var(--line);background:transparent;color:var(--text);text-align:left;padding:14px 2px;font-size:16px;cursor:pointer}
+.menu-item:active{opacity:.6}
+.menu-item.danger{color:var(--danger)}
+.num-in{font-size:28px;font-weight:700;text-align:center}
+.grid .poster.pressed{transform:scale(.95);transition:transform .15s}
+.poster .pin-tag{position:absolute;right:6px;bottom:6px;width:24px;height:24px;border-radius:50%;background:var(--gold);color:#000;display:grid;place-items:center}
+.picker{max-width:620px;margin:0 auto}
+.picker #pickQ{margin:0 0 10px}
+.pick-row{display:grid;grid-template-columns:30px 34px minmax(0,1fr);gap:12px;align-items:center;width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;padding:8px 0;text-align:left;cursor:pointer}
+.pick-row[hidden]{display:none}
+.pick-row b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick-n{color:var(--faint);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+.pick-row:active{opacity:.6}
